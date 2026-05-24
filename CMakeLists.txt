@@ -41,6 +41,15 @@ target_include_directories(doost_safe_memory PUBLIC
 )
 target_compile_features(doost_safe_memory PUBLIC cxx_std_20)
 
+add_library(doost_parallel_memcpy STATIC
+        src/parallel_memcpy.cpp
+)
+target_include_directories(doost_parallel_memcpy PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(doost_parallel_memcpy PUBLIC cxx_std_20)
+target_link_libraries(doost_parallel_memcpy PUBLIC Threads::Threads)
+
 add_executable(pool_baseline benchmark/pool_baseline.cpp)
 
 add_executable(pool_allocator_benchmark benchmark/pool_allocator_benchmark.cpp)
@@ -83,6 +92,11 @@ add_executable(string_benchmark
 )
 target_link_libraries(string_benchmark PRIVATE doost_string)
 
+add_executable(parallel_memcpy_benchmark
+        benchmark/parallel_memcpy_benchmark.cpp
+)
+target_link_libraries(parallel_memcpy_benchmark PRIVATE doost_parallel_memcpy)
+
 if(BUILD_TESTING)
         add_executable(doost_tests test/doost_tests.cpp)
         target_link_libraries(doost_tests PRIVATE doost_pool Threads::Threads)
@@ -95,4 +109,8 @@ if(BUILD_TESTING)
         add_executable(safe_memory_tests test/safe_memory_tests.cpp)
         target_link_libraries(safe_memory_tests PRIVATE doost_safe_memory)
         add_test(NAME safe_memory_tests COMMAND safe_memory_tests)
+
+        add_executable(parallel_memcpy_tests test/parallel_memcpy_tests.cpp)
+        target_link_libraries(parallel_memcpy_tests PRIVATE doost_parallel_memcpy)
+        add_test(NAME parallel_memcpy_tests COMMAND parallel_memcpy_tests)
 endif()

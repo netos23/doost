@@ -39,6 +39,16 @@ std::optional<std::uint8_t> doost::safe_read_uint8(const std::uint8_t* p) noexce
 
 Функция возвращает значение байта для доступного адреса и `std::nullopt`, если чтение приводит к `SIGSEGV` или `SIGBUS`. Реализация временно устанавливает обработчики сигналов вокруг одного `volatile`-чтения и восстанавливает прежние обработчики перед возвратом. Многопоточный одновременный вызов не поддерживается.
 
+# Параллельное копирование больших блоков данных
+
+Библиотека `doost_parallel_memcpy` содержит пул потоков и функцию:
+
+```cpp
+void* doost::parallel_memcpy(void* dst, const void* src, std::size_t size);
+```
+
+Число worker-потоков задается через `doost::set_parallel_memcpy_thread_count`. При копировании диапазон делится на части, а поток приложения забирает работу из той же очереди, что и worker-потоки. При `0` worker-потоков используется обычный `std::memcpy`.
+
 ## Требования
 
 - POSIX-совместимая ОС.
@@ -60,6 +70,7 @@ std::optional<std::uint8_t> doost::safe_read_uint8(const std::uint8_t* p) noexce
 │   ├── list.hpp
 │   ├── mutex_downward_pool.hpp
 │   ├── nonblocking_downward_pool.hpp
+│   ├── parallel_memcpy.hpp
 │   ├── safe_memory.hpp
 │   └── string.hpp
 ├── src/
@@ -67,10 +78,12 @@ std::optional<std::uint8_t> doost::safe_read_uint8(const std::uint8_t* p) noexce
 │   ├── downward_pool_storage.cpp
 │   ├── mutex_downward_pool.cpp
 │   ├── nonblocking_downward_pool.cpp
+│   ├── parallel_memcpy.cpp
 │   ├── safe_memory.cpp
 │   └── string.cpp
 ├── test/
 │   ├── doost_tests.cpp
+│   ├── parallel_memcpy_tests.cpp
 │   ├── safe_memory_tests.cpp
 │   └── string_tests.cpp
 └── benchmark/
@@ -79,6 +92,7 @@ std::optional<std::uint8_t> doost::safe_read_uint8(const std::uint8_t* p) noexce
     ├── global_nonblocking_pool_benchmark.cpp
     ├── thread_local_pool_benchmark.cpp
     ├── string_benchmark.cpp
+    ├── parallel_memcpy_benchmark.cpp
     ├── pool_baseline.cpp
     ├── pool_allocator_benchmark.cpp
     ├── compare_benchmarks.sh
@@ -116,6 +130,12 @@ std::optional<std::uint8_t> doost::safe_read_uint8(const std::uint8_t* p) noexce
 - `include/doost/safe_memory.hpp` и `src/safe_memory.cpp` - функция `doost::safe_read_uint8`.
 - `test/safe_memory_tests.cpp` - тесты чтения доступного адреса, `nullptr`, `PROT_NONE`-страницы, `munmap`-нутого адреса, восстановления после fault и сохранения `errno`.
 
+### Параллельное копирование памяти
+
+- `include/doost/parallel_memcpy.hpp` и `src/parallel_memcpy.cpp` - пул потоков и функция `doost::parallel_memcpy`.
+- `test/parallel_memcpy_tests.cpp` - тесты корректного копирования для `0`...`8` worker-потоков, повторных запусков, изменения размера пула и нулевого размера.
+- `benchmark/parallel_memcpy_benchmark.cpp` - сравнение времени копирования больших блоков для разного числа потоков пула.
+
 ## Сборка
 
 Для релизной сборки:
@@ -137,15 +157,18 @@ cmake --build cmake-build-debug
 - `doost_pool` - статическая библиотека с реализацией пула.
 - `doost_string` - статическая библиотека умного указателя на строку.
 - `doost_safe_memory` - статическая библиотека безопасного чтения байта по адресу.
+- `doost_parallel_memcpy` - статическая библиотека параллельного копирования памяти.
 - `standard_allocator_benchmark` - стандартный `new/delete`.
 - `global_mutex_pool_benchmark` - один глобальный пул под мьютексом.
 - `global_nonblocking_pool_benchmark` - один глобальный неблокирующий пул.
 - `thread_local_pool_benchmark` - локальный пул на каждый поток.
 - `string_benchmark` - бенчмарк `doost::String`.
+- `parallel_memcpy_benchmark` - бенчмарк `parallel_memcpy` для больших блоков.
 - `pool_baseline` и `pool_allocator_benchmark` - однопоточные бенчмарки растущего вниз последовательного пула для элементов списка.
 - `doost_tests` - тесты списка, пула и аллокатора, если включен `BUILD_TESTING`.
 - `string_tests` - тесты умного указателя на строки, если включен `BUILD_TESTING`.
 - `safe_memory_tests` - тесты `safe_read_uint8`, если включен `BUILD_TESTING`.
+- `parallel_memcpy_tests` - тесты `parallel_memcpy`, если включен `BUILD_TESTING`.
 
 Опция `DOOST_ENABLE_SIGSEGV_HANDLER` включает код обработчика `SIGSEGV`/`SIGBUS`. Бенчмарки Неблокирующиго растущего вниз последовательного пула для элементов списка» устанавливают обработчик и при попадании в guard page печатают имя переполненного пула, например `global-nonblocking-pool` или `thread-local-pool`.
 
@@ -164,11 +187,36 @@ ctest --test-dir cmake-build-debug --output-on-failure
 ./cmake-build-debug/doost_tests
 ./cmake-build-debug/string_tests
 ./cmake-build-debug/safe_memory_tests
+./cmake-build-debug/parallel_memcpy_tests
 ```
 
 `string_tests` проверяет разнообразные инициализации, присваивания строк и умных указателей, извлечение строк, печать, debug-трассировку освобождения и пузырьковую сортировку массива `String`. Сортировка использует `swap` и проверяет, что биты уникальности у строковых блоков не меняются из-за перестановок.
 
 `safe_memory_tests` проверяет, что `safe_read_uint8` возвращает байт из доступной памяти, `std::nullopt` для недоступных адресов и продолжает корректно работать после перехваченного fault.
+
+`parallel_memcpy_tests` проверяет совпадение исходных и скопированных данных для `0`...`8` worker-потоков, повторное использование пула, изменение числа потоков и копирование нулевого размера.
+
+## Бенчмарк: Параллельное копирование памяти
+
+По умолчанию бенчмарк копирует `256` МиБ и сравнивает режимы с `0`...`8` worker-потоками. Режим `0` использует `std::memcpy` и служит базовой точкой.
+
+```bash
+./cmake-build-release/parallel_memcpy_benchmark
+```
+
+Аргументы: `[byte-count] [max-thread-count] [repeat-count]`.
+
+```bash
+./cmake-build-release/parallel_memcpy_benchmark 268435456 8 1
+```
+
+Для быстрой проверки можно запускать меньший размер:
+
+```bash
+./cmake-build-release/parallel_memcpy_benchmark 1048576 2 1
+```
+
+Программа для каждого числа потоков проверяет совпадение исходных и скопированных данных и выводит лучшее время копирования в микросекундах и пропускную способность в МиБ/с.
 
 ## Бенчмарки: Реализация растущего вниз последовательного пула для элементов списка
 
