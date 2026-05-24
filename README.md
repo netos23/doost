@@ -29,6 +29,16 @@
 - `reset`, `swap`, move-семантика, сравнение для сортировки;
 - трассировка освобождения строк в debug-сборке через `String::set_debug_trace`.
 
+# Безопасное чтение байта памяти по адресу
+
+Библиотека `doost_safe_memory` добавляет POSIX-функцию:
+
+```cpp
+std::optional<std::uint8_t> doost::safe_read_uint8(const std::uint8_t* p) noexcept;
+```
+
+Функция возвращает значение байта для доступного адреса и `std::nullopt`, если чтение приводит к `SIGSEGV` или `SIGBUS`. Реализация временно устанавливает обработчики сигналов вокруг одного `volatile`-чтения и восстанавливает прежние обработчики перед возвратом. Многопоточный одновременный вызов не поддерживается.
+
 ## Требования
 
 - POSIX-совместимая ОС.
@@ -50,15 +60,18 @@
 │   ├── list.hpp
 │   ├── mutex_downward_pool.hpp
 │   ├── nonblocking_downward_pool.hpp
+│   ├── safe_memory.hpp
 │   └── string.hpp
 ├── src/
 │   ├── downward_pool.cpp
 │   ├── downward_pool_storage.cpp
 │   ├── mutex_downward_pool.cpp
 │   ├── nonblocking_downward_pool.cpp
+│   ├── safe_memory.cpp
 │   └── string.cpp
 ├── test/
 │   ├── doost_tests.cpp
+│   ├── safe_memory_tests.cpp
 │   └── string_tests.cpp
 └── benchmark/
     ├── standard_allocator_benchmark.cpp
@@ -98,6 +111,11 @@
 - `test/string_tests.cpp` - тесты инициализации, присваиваний, печати, трассировки освобождения и пузырьковой сортировки.
 - `benchmark/string_benchmark.cpp` - отдельный бенчмарк умных указателей на строки и пузырьковой сортировки.
 
+### Безопасное чтение байта памяти
+
+- `include/doost/safe_memory.hpp` и `src/safe_memory.cpp` - функция `doost::safe_read_uint8`.
+- `test/safe_memory_tests.cpp` - тесты чтения доступного адреса, `nullptr`, `PROT_NONE`-страницы, `munmap`-нутого адреса, восстановления после fault и сохранения `errno`.
+
 ## Сборка
 
 Для релизной сборки:
@@ -118,6 +136,7 @@ cmake --build cmake-build-debug
 
 - `doost_pool` - статическая библиотека с реализацией пула.
 - `doost_string` - статическая библиотека умного указателя на строку.
+- `doost_safe_memory` - статическая библиотека безопасного чтения байта по адресу.
 - `standard_allocator_benchmark` - стандартный `new/delete`.
 - `global_mutex_pool_benchmark` - один глобальный пул под мьютексом.
 - `global_nonblocking_pool_benchmark` - один глобальный неблокирующий пул.
@@ -126,6 +145,7 @@ cmake --build cmake-build-debug
 - `pool_baseline` и `pool_allocator_benchmark` - однопоточные бенчмарки растущего вниз последовательного пула для элементов списка.
 - `doost_tests` - тесты списка, пула и аллокатора, если включен `BUILD_TESTING`.
 - `string_tests` - тесты умного указателя на строки, если включен `BUILD_TESTING`.
+- `safe_memory_tests` - тесты `safe_read_uint8`, если включен `BUILD_TESTING`.
 
 Опция `DOOST_ENABLE_SIGSEGV_HANDLER` включает код обработчика `SIGSEGV`/`SIGBUS`. Бенчмарки Неблокирующиго растущего вниз последовательного пула для элементов списка» устанавливают обработчик и при попадании в guard page печатают имя переполненного пула, например `global-nonblocking-pool` или `thread-local-pool`.
 
@@ -143,11 +163,12 @@ ctest --test-dir cmake-build-debug --output-on-failure
 ```bash
 ./cmake-build-debug/doost_tests
 ./cmake-build-debug/string_tests
+./cmake-build-debug/safe_memory_tests
 ```
 
 `string_tests` проверяет разнообразные инициализации, присваивания строк и умных указателей, извлечение строк, печать, debug-трассировку освобождения и пузырьковую сортировку массива `String`. Сортировка использует `swap` и проверяет, что биты уникальности у строковых блоков не меняются из-за перестановок.
 
-
+`safe_memory_tests` проверяет, что `safe_read_uint8` возвращает байт из доступной памяти, `std::nullopt` для недоступных адресов и продолжает корректно работать после перехваченного fault.
 
 ## Бенчмарки: Реализация растущего вниз последовательного пула для элементов списка
 

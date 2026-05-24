@@ -33,6 +33,14 @@ target_include_directories(doost_string PUBLIC
 )
 target_compile_features(doost_string PUBLIC cxx_std_20)
 
+add_library(doost_safe_memory STATIC
+        src/safe_memory.cpp
+)
+target_include_directories(doost_safe_memory PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(doost_safe_memory PUBLIC cxx_std_20)
+
 add_executable(pool_baseline benchmark/pool_baseline.cpp)
 
 add_executable(pool_allocator_benchmark benchmark/pool_allocator_benchmark.cpp)
@@ -83,4 +91,8 @@ if(BUILD_TESTING)
         add_executable(string_tests test/string_tests.cpp)
         target_link_libraries(string_tests PRIVATE doost_string)
         add_test(NAME string_tests COMMAND string_tests)
+
+        add_executable(safe_memory_tests test/safe_memory_tests.cpp)
+        target_link_libraries(safe_memory_tests PRIVATE doost_safe_memory)
+        add_test(NAME safe_memory_tests COMMAND safe_memory_tests)
 endif()
