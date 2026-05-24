@@ -15,6 +15,20 @@
 
 Обработчик `SIGSEGV`/`SIGBUS` включается флагом `DOOST_ENABLE_SIGSEGV_HANDLER` и при попадании в guard page печатает имя переполненного пула.
 
+# Автоматическое освобождение строк с однобитовым счётчиком
+
+Маленькая однопоточная библиотека `doost_string` с умным указателем `doost::String`. Указатель владеет строковым блоком и автоматически освобождает строку, когда исчезает последний владелец.
+
+
+Поддерживаются:
+
+- создание пустого умного указателя, создание из строки и копирование из другого умного указателя;
+- присваивание строки, `nullptr` и другого умного указателя;
+- извлечение строки через `value()`, `view()` и `c_str()`;
+- печать в поток в формате `String{unique=1, value="text"}`;
+- `reset`, `swap`, move-семантика, сравнение для сортировки;
+- трассировка освобождения строк в debug-сборке через `String::set_debug_trace`.
+
 ## Требования
 
 - POSIX-совместимая ОС.
@@ -35,33 +49,54 @@
 │   ├── downward_pool_allocator.hpp
 │   ├── list.hpp
 │   ├── mutex_downward_pool.hpp
-│   └── nonblocking_downward_pool.hpp
+│   ├── nonblocking_downward_pool.hpp
+│   └── string.hpp
 ├── src/
 │   ├── downward_pool.cpp
 │   ├── downward_pool_storage.cpp
 │   ├── mutex_downward_pool.cpp
-│   └── nonblocking_downward_pool.cpp
+│   ├── nonblocking_downward_pool.cpp
+│   └── string.cpp
+├── test/
+│   ├── doost_tests.cpp
+│   └── string_tests.cpp
 └── benchmark/
     ├── standard_allocator_benchmark.cpp
     ├── global_mutex_pool_benchmark.cpp
     ├── global_nonblocking_pool_benchmark.cpp
     ├── thread_local_pool_benchmark.cpp
+    ├── string_benchmark.cpp
     ├── pool_baseline.cpp
     ├── pool_allocator_benchmark.cpp
     ├── compare_benchmarks.sh
     └── compare_allocator_benchmarks.sh
 ```
 
-Ключевые файлы:
+Ключевые файлы по задачам:
+
+### Растущий вниз последовательный пул
 
 - `include/doost/list.hpp` - шаблонный односвязный список `doost::List<T, Allocator>`.
 - `include/doost/downward_pool.hpp` - публичный интерфейс пула `doost::DownwardPool`.
 - `include/doost/detail/downward_pool_storage.hpp` - общая POSIX-разметка памяти, guard page и регистрация имени пула.
+- `include/doost/downward_pool_allocator.hpp` - STL-style аллокатор `doost::DownwardPoolAllocator<T>`.
+- `src/downward_pool.cpp` и `src/downward_pool_storage.cpp` - реализация однопоточного пула и общей POSIX-разметки.
+- `benchmark/pool_baseline.cpp` и `benchmark/pool_allocator_benchmark.cpp` - бенчмарки однопоточного пула для элементов списка.
+- `benchmark/compare_benchmarks.sh` - сравнение базового и пулового вариантов.
+
+### Неблокирующий пул
+
 - `include/doost/mutex_downward_pool.hpp` - глобальный пул под мьютексом.
 - `include/doost/nonblocking_downward_pool.hpp` - неблокирующий глобальный пул.
-- `include/doost/downward_pool_allocator.hpp` - STL-style аллокатор `doost::DownwardPoolAllocator<T>`.
-- `benchmark/pool_baseline.cpp` и `benchmark/pool_allocator_benchmark.cpp` - бенчмарки  растущего вниз последовательного пула для элементов списка
-- `benchmark/standard_allocator_benchmark.cpp`, `benchmark/global_mutex_pool_benchmark.cpp`, `benchmark/global_nonblocking_pool_benchmark.cpp`, `benchmark/thread_local_pool_benchmark.cpp` - бенчмарки неблокирующего  растущего вниз последовательного пула для элементов списка.
+- `src/mutex_downward_pool.cpp` и `src/nonblocking_downward_pool.cpp` - реализации многопоточных вариантов пула.
+- `benchmark/standard_allocator_benchmark.cpp`, `benchmark/global_mutex_pool_benchmark.cpp`, `benchmark/global_nonblocking_pool_benchmark.cpp`, `benchmark/thread_local_pool_benchmark.cpp` - бенчмарки многопоточного выделения узлов списка.
+- `benchmark/compare_allocator_benchmarks.sh` - сравнение всех многопоточных вариантов.
+
+### Автоматическое освобождение строк
+
+- `include/doost/string.hpp` и `src/string.cpp` - однопоточный умный указатель `doost::String` для автоматического освобождения строк.
+- `test/string_tests.cpp` - тесты инициализации, присваиваний, печати, трассировки освобождения и пузырьковой сортировки.
+- `benchmark/string_benchmark.cpp` - отдельный бенчмарк умных указателей на строки и пузырьковой сортировки.
 
 ## Сборка
 
@@ -82,12 +117,15 @@ cmake --build cmake-build-debug
 После сборки доступны цели:
 
 - `doost_pool` - статическая библиотека с реализацией пула.
+- `doost_string` - статическая библиотека умного указателя на строку.
 - `standard_allocator_benchmark` - стандартный `new/delete`.
 - `global_mutex_pool_benchmark` - один глобальный пул под мьютексом.
 - `global_nonblocking_pool_benchmark` - один глобальный неблокирующий пул.
 - `thread_local_pool_benchmark` - локальный пул на каждый поток.
+- `string_benchmark` - бенчмарк `doost::String`.
 - `pool_baseline` и `pool_allocator_benchmark` - однопоточные бенчмарки растущего вниз последовательного пула для элементов списка.
 - `doost_tests` - тесты списка, пула и аллокатора, если включен `BUILD_TESTING`.
+- `string_tests` - тесты умного указателя на строки, если включен `BUILD_TESTING`.
 
 Опция `DOOST_ENABLE_SIGSEGV_HANDLER` включает код обработчика `SIGSEGV`/`SIGBUS`. Бенчмарки Неблокирующиго растущего вниз последовательного пула для элементов списка» устанавливают обработчик и при попадании в guard page печатают имя переполненного пула, например `global-nonblocking-pool` или `thread-local-pool`.
 
@@ -104,7 +142,10 @@ ctest --test-dir cmake-build-debug --output-on-failure
 
 ```bash
 ./cmake-build-debug/doost_tests
+./cmake-build-debug/string_tests
 ```
+
+`string_tests` проверяет разнообразные инициализации, присваивания строк и умных указателей, извлечение строк, печать, debug-трассировку освобождения и пузырьковую сортировку массива `String`. Сортировка использует `swap` и проверяет, что биты уникальности у строковых блоков не меняются из-за перестановок.
 
 
 
@@ -177,3 +218,19 @@ ctest --test-dir cmake-build-debug --output-on-failure
 - `Pool usable storage` - размер полезной области пула, округленный до страницы.
 - `Pool used storage` - фактически занятая память внутри пула.
 - `Overhead` - оценка накладных расходов относительно памяти под узлы.
+
+## Бенчмарк: Автоматическое освобождение строк с однобитовым счётчиком
+
+По умолчанию бенчмарк создаёт `5000` умных указателей на строки, добавляет внешние алиасы для части элементов и сортирует массив пузырьком.
+
+```bash
+./cmake-build-release/string_benchmark
+```
+
+Количество строк можно передать аргументом:
+
+```bash
+./cmake-build-release/string_benchmark 5000
+```
+
+Программа выводит время, прирост `ru_maxrss`, количество строк, число внешних алиасов и количество уникальных строковых блоков до и после сортировки.

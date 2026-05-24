@@ -25,6 +25,14 @@ if(DOOST_ENABLE_SIGSEGV_HANDLER)
         target_compile_definitions(doost_pool PUBLIC DOOST_ENABLE_SIGSEGV_HANDLER=1)
 endif()
 
+add_library(doost_string STATIC
+        src/string.cpp
+)
+target_include_directories(doost_string PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(doost_string PUBLIC cxx_std_20)
+
 add_executable(pool_baseline benchmark/pool_baseline.cpp)
 
 add_executable(pool_allocator_benchmark benchmark/pool_allocator_benchmark.cpp)
@@ -62,8 +70,17 @@ target_link_libraries(thread_local_pool_benchmark PRIVATE
         Threads::Threads
 )
 
+add_executable(string_benchmark
+        benchmark/string_benchmark.cpp
+)
+target_link_libraries(string_benchmark PRIVATE doost_string)
+
 if(BUILD_TESTING)
         add_executable(doost_tests test/doost_tests.cpp)
         target_link_libraries(doost_tests PRIVATE doost_pool Threads::Threads)
         add_test(NAME doost_tests COMMAND doost_tests)
+
+        add_executable(string_tests test/string_tests.cpp)
+        target_link_libraries(string_tests PRIVATE doost_string)
+        add_test(NAME string_tests COMMAND string_tests)
 endif()

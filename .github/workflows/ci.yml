@@ -72,3 +72,6 @@ jobs:
 
       - name: Compare task 2 allocator benchmark results
         run: bash benchmark/compare_allocator_benchmarks.sh build 100000 16
+
+      - name: Run string benchmark
+        run: ./build/string_benchmark 1000
