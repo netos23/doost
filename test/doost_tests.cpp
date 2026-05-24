@@ -1,0 +1,250 @@
+#include "doost/downward_pool.hpp"
+#include "doost/downward_pool_allocator.hpp"
+#include "doost/list.hpp"
+
+#include <csignal>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <exception>
+#include <iostream>
+#include <new>
+#include <stdexcept>
+#include <string_view>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
+
+namespace {
+    int g_failures = 0;
+
+#define CHECK(condition)                                                        \
+    do {                                                                       \
+        if (!(condition)) {                                                     \
+            std::cerr << __FILE__ << ':' << __LINE__                           \
+                      << ": check failed: " #condition "\n";                  \
+            ++g_failures;                                                       \
+        }                                                                       \
+    } while (false)
+
+#define CHECK_THROWS_AS(expression, exception_type)                             \
+    do {                                                                       \
+        bool caught_expected_exception = false;                                 \
+        try {                                                                  \
+            expression;                                                         \
+        } catch (const exception_type&) {                                       \
+            caught_expected_exception = true;                                   \
+        } catch (...) {                                                         \
+        }                                                                       \
+        CHECK(caught_expected_exception);                                       \
+    } while (false)
+
+    template <class T, class Allocator>
+    std::vector<T> values_from(const doost::List<T, Allocator>& list) {
+        std::vector<T> values;
+        for (const T& value : list) {
+            values.push_back(value);
+        }
+        return values;
+    }
+
+    template <class T>
+    bool is_aligned(T* pointer, std::size_t alignment) {
+        const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+        return address % alignment == 0;
+    }
+
+    void test_list_push_pop_and_iteration() {
+        doost::List<int> list;
+        CHECK(list.empty());
+        CHECK(list.size() == 0);
+
+        list.push_front(1);
+        list.push_front(2);
+        list.emplace_front(3);
+
+        CHECK(!list.empty());
+        CHECK(list.size() == 3);
+        CHECK(list.front() == 3);
+        CHECK(values_from(list) == std::vector<int>({3, 2, 1}));
+
+        list.pop_front();
+        CHECK(list.size() == 2);
+        CHECK(list.front() == 2);
+        CHECK(values_from(list) == std::vector<int>({2, 1}));
+
+        list.clear();
+        CHECK(list.empty());
+        CHECK(list.size() == 0);
+        CHECK_THROWS_AS(list.pop_front(), std::out_of_range);
+    }
+
+    void test_list_copy_and_move() {
+        doost::List<int> source;
+        for (int value = 0; value != 4; ++value) {
+            source.push_front(value);
+        }
+
+        const doost::List<int> copy(source);
+        CHECK(source.size() == 4);
+        CHECK(copy.size() == 4);
+        CHECK(values_from(copy) == std::vector<int>({3, 2, 1, 0}));
+
+        doost::List<int> assigned;
+        assigned = source;
+        CHECK(assigned.size() == 4);
+        CHECK(values_from(assigned) == std::vector<int>({3, 2, 1, 0}));
+
+        doost::List<int> moved(std::move(source));
+        CHECK(source.empty());
+        CHECK(moved.size() == 4);
+        CHECK(values_from(moved) == std::vector<int>({3, 2, 1, 0}));
+    }
+
+    void test_pool_grows_down_and_resets() {
+        doost::DownwardPool pool(128);
+
+        CHECK(pool.requested_bytes() == 128);
+        CHECK(pool.page_size() > 0);
+        CHECK(pool.guard_bytes() == pool.page_size());
+        CHECK(pool.usable_bytes() >= 128);
+        CHECK(pool.used_bytes() == 0);
+        CHECK(pool.remaining_bytes() == pool.usable_bytes());
+
+        auto* first = static_cast<std::max_align_t*>(
+            pool.allocate(sizeof(std::max_align_t), alignof(std::max_align_t)));
+        auto* second = static_cast<std::max_align_t*>(
+            pool.allocate(sizeof(std::max_align_t), alignof(std::max_align_t)));
+
+        const auto first_address = reinterpret_cast<std::uintptr_t>(first);
+        const auto second_address = reinterpret_cast<std::uintptr_t>(second);
+        CHECK(second_address < first_address);
+        CHECK(is_aligned(first, alignof(std::max_align_t)));
+        CHECK(is_aligned(second, alignof(std::max_align_t)));
+        CHECK(pool.used_bytes() >= 2 * sizeof(std::max_align_t));
+        CHECK(pool.remaining_bytes() < pool.usable_bytes());
+
+        pool.reset();
+        CHECK(pool.used_bytes() == 0);
+        CHECK(pool.remaining_bytes() == pool.usable_bytes());
+
+        pool.release();
+        CHECK(pool.requested_bytes() == 0);
+        CHECK(pool.usable_bytes() == 0);
+        CHECK(pool.used_bytes() == 0);
+        CHECK(pool.remaining_bytes() == 0);
+    }
+
+    void test_pool_move_transfers_mapping() {
+        doost::DownwardPool source(64);
+        static_cast<void>(source.allocate(16, alignof(std::max_align_t)));
+        CHECK(source.used_bytes() >= 16);
+
+        doost::DownwardPool moved(std::move(source));
+        CHECK(source.usable_bytes() == 0);
+        CHECK(source.used_bytes() == 0);
+        CHECK(moved.usable_bytes() >= 64);
+        CHECK(moved.used_bytes() >= 16);
+
+        doost::DownwardPool assigned(32);
+        assigned = std::move(moved);
+        CHECK(moved.usable_bytes() == 0);
+        CHECK(assigned.usable_bytes() >= 64);
+        CHECK(assigned.used_bytes() >= 16);
+    }
+
+    void test_allocator_list_uses_pool_storage() {
+        using Allocator = doost::DownwardPoolAllocator<unsigned>;
+        using List = doost::List<unsigned, Allocator>;
+
+        doost::DownwardPool pool(List::required_storage(4));
+        {
+            List list{Allocator(pool)};
+            list.push_front(1);
+            list.push_front(2);
+            list.push_front(3);
+            list.push_front(4);
+
+            CHECK(list.size() == 4);
+            CHECK(values_from(list) == std::vector<unsigned>({4, 3, 2, 1}));
+            CHECK(pool.used_bytes() == List::required_storage(4));
+
+            list.release_nodes();
+        }
+
+        CHECK(pool.used_bytes() == List::required_storage(4));
+    }
+
+    void test_default_pool_allocator_throws() {
+        doost::DownwardPoolAllocator<int> allocator;
+        CHECK_THROWS_AS(static_cast<void>(allocator.allocate(1)), std::bad_alloc);
+    }
+
+    void write_into_guard_page_in_child() {
+        doost::DownwardPool pool(1);
+        auto* memory = static_cast<volatile unsigned char*>(
+            pool.allocate(pool.usable_bytes() + 1, alignof(unsigned char)));
+        *memory = 0x7f;
+        _exit(EXIT_SUCCESS);
+    }
+
+    void test_overflow_hits_guard_page() {
+        const pid_t child = fork();
+        if (child < 0) {
+            throw std::runtime_error("fork failed");
+        }
+
+        if (child == 0) {
+            write_into_guard_page_in_child();
+        }
+
+        int status = 0;
+        const pid_t waited = waitpid(child, &status, 0);
+        CHECK(waited == child);
+        CHECK(WIFSIGNALED(status));
+        if (WIFSIGNALED(status)) {
+            const int signal = WTERMSIG(status);
+            CHECK(signal == SIGSEGV || signal == SIGBUS);
+        }
+    }
+
+    void run_test(std::string_view name, void (*test)()) {
+        const int failures_before = g_failures;
+        try {
+            test();
+        }
+        catch (const std::exception& exception) {
+            std::cerr << name << ": unexpected exception: " << exception.what()
+                << '\n';
+            ++g_failures;
+        }
+        catch (...) {
+            std::cerr << name << ": unexpected non-standard exception\n";
+            ++g_failures;
+        }
+
+        if (g_failures == failures_before) {
+            std::cout << "[PASS] " << name << '\n';
+        }
+        else {
+            std::cout << "[FAIL] " << name << '\n';
+        }
+    }
+} // namespace
+
+int main() {
+    run_test("list push/pop/iteration", test_list_push_pop_and_iteration);
+    run_test("list copy/move", test_list_copy_and_move);
+    run_test("pool grows down and resets", test_pool_grows_down_and_resets);
+    run_test("pool move transfers mapping", test_pool_move_transfers_mapping);
+    run_test("allocator list uses pool storage", test_allocator_list_uses_pool_storage);
+    run_test("default pool allocator throws", test_default_pool_allocator_throws);
+    run_test("overflow hits guard page", test_overflow_hits_guard_page);
+
+    if (g_failures != 0) {
+        std::cerr << g_failures << " test check(s) failed\n";
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
