@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOOST_LIST_HPP
+#define DOOST_LIST_HPP
 
 #include <cstddef>
 #include <iterator>
@@ -354,3 +355,5 @@ namespace doost {
         [[no_unique_address]] NodeAllocator allocator_;
     };
 } // namespace doost
+
+#endif // DOOST_LIST_HPP

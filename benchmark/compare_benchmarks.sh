@@ -27,8 +27,6 @@ resolve_binary() {
 baseline_bin="$(resolve_binary pool_baseline)"
 pool_bin="$(resolve_binary pool_allocator_benchmark)"
 
-
-
 run_benchmark() {
   local binary="$1"
   "$binary" "$node_count"
@@ -84,8 +82,8 @@ cat <<EOF
 | Memory used (bytes) | ${baseline_memory} | ${pool_memory} |
 | Node storage required (bytes) | ${baseline_required} | ${pool_required} |
 | Overhead (%) | ${baseline_overhead}% | ${pool_overhead}% |
-| Pool usable storage (bytes) | — | ${pool_usable} |
-| Pool used storage (bytes) | — | ${pool_used} |
+| Pool usable storage (bytes) | - | ${pool_usable} |
+| Pool used storage (bytes) | - | ${pool_used} |
 
 ## Comparison
 
@@ -96,4 +94,3 @@ cat <<EOF
 | Node storage required (bytes) | ${baseline_required} | ${pool_required} | $(format_delta_int "$baseline_required" "$pool_required") | $(format_ratio "$baseline_required" "$pool_required") |
 | Overhead (%) | ${baseline_overhead}% | ${pool_overhead}% | $(format_delta_percent "$baseline_overhead" "$pool_overhead") | $(format_ratio "$baseline_overhead" "$pool_overhead") |
 EOF
-

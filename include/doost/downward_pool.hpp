@@ -1,11 +1,15 @@
-#pragma once
+#ifndef DOOST_DOWNWARD_POOL_HPP
+#define DOOST_DOWNWARD_POOL_HPP
+
+#include "doost/detail/downward_pool_storage.hpp"
 
 #include <cstddef>
 
 namespace doost {
     class DownwardPool {
     public:
-        explicit DownwardPool(std::size_t usable_bytes);
+        explicit DownwardPool(std::size_t usable_bytes,
+                              const char* overflow_name = "downward-pool");
         ~DownwardPool();
 
         DownwardPool(const DownwardPool&) = delete;
@@ -30,14 +34,11 @@ namespace doost {
     private:
         void move_from(DownwardPool& other) noexcept;
 
-        std::byte* mapping_begin_ = nullptr;
-        std::byte* lower_bound_ = nullptr;
+        detail::DownwardPoolStorage storage_;
         std::byte* cursor_ = nullptr;
-        std::byte* upper_bound_ = nullptr;
-        std::size_t requested_bytes_ = 0;
-        std::size_t usable_bytes_ = 0;
-        std::size_t guard_bytes_ = 0;
-        std::size_t mapping_bytes_ = 0;
-        std::size_t page_size_ = 0;
     };
+
+    void install_pool_overflow_signal_handler() noexcept;
 } // namespace doost
+
+#endif // DOOST_DOWNWARD_POOL_HPP

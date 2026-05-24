@@ -1,4 +1,5 @@
-#pragma once
+#ifndef DOOST_DOWNWARD_POOL_ALLOCATOR_HPP
+#define DOOST_DOWNWARD_POOL_ALLOCATOR_HPP
 
 #include "doost/downward_pool.hpp"
 
@@ -70,4 +71,72 @@ namespace doost {
                                   const DownwardPoolAllocator<U>& rhs) noexcept {
         return !(lhs == rhs);
     }
+
+    template <class T, class Pool>
+    class SequentialPoolAllocator {
+    public:
+        using value_type = T;
+        using pool_type = Pool;
+        using size_type = std::size_t;
+        using difference_type = std::ptrdiff_t;
+        using propagate_on_container_move_assignment = std::true_type;
+        using is_always_equal = std::false_type;
+
+        template <class U>
+        struct rebind {
+            using other = SequentialPoolAllocator<U, Pool>;
+        };
+
+        SequentialPoolAllocator() noexcept = default;
+
+        explicit SequentialPoolAllocator(Pool& pool) noexcept
+            : pool_(&pool) {}
+
+        template <class U>
+        SequentialPoolAllocator(
+            const SequentialPoolAllocator<U, Pool>& other) noexcept
+            : pool_(other.pool()) {}
+
+        [[nodiscard]] T* allocate(std::size_t n) {
+            if (pool_ == nullptr) {
+                throw std::bad_alloc();
+            }
+            if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+                throw std::bad_alloc();
+            }
+            return static_cast<T*>(pool_->allocate(n * sizeof(T), alignof(T)));
+        }
+
+        void deallocate(T* ptr, std::size_t n) noexcept {
+            if (pool_ != nullptr) {
+                pool_->deallocate(ptr, n * sizeof(T), alignof(T));
+            }
+        }
+
+        [[nodiscard]] Pool* pool() const noexcept {
+            return pool_;
+        }
+
+    private:
+        template <class U, class OtherPool>
+        friend class SequentialPoolAllocator;
+
+        Pool* pool_ = nullptr;
+    };
+
+    template <class T, class U, class Pool>
+    [[nodiscard]] bool operator==(const SequentialPoolAllocator<T, Pool>& lhs,
+                                  const SequentialPoolAllocator<U, Pool>& rhs)
+        noexcept {
+        return lhs.pool() == rhs.pool();
+    }
+
+    template <class T, class U, class Pool>
+    [[nodiscard]] bool operator!=(const SequentialPoolAllocator<T, Pool>& lhs,
+                                  const SequentialPoolAllocator<U, Pool>& rhs)
+        noexcept {
+        return !(lhs == rhs);
+    }
 } // namespace doost
+
+#endif // DOOST_DOWNWARD_POOL_ALLOCATOR_HPP

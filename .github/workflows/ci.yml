@@ -12,7 +12,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure project
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DDOOST_ENABLE_SIGSEGV_HANDLER=ON
 
       - name: Build project
         run: cmake --build build --parallel
@@ -67,6 +67,8 @@ jobs:
           mkdir -p build
           tar -xzf artifact/build-tree.tar.gz -C build
 
-      - name: Compare benchmark results
+      - name: Compare task 1 benchmark results
         run: bash benchmark/compare_benchmarks.sh build 100000
 
+      - name: Compare task 2 allocator benchmark results
+        run: bash benchmark/compare_allocator_benchmarks.sh build 100000 16
