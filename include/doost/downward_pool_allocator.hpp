@@ -43,9 +43,7 @@ namespace doost {
         }
 
         void deallocate(T* ptr, std::size_t n) noexcept {
-            if (pool_ != nullptr) {
-                pool_->deallocate(ptr, n * sizeof(T), alignof(T));
-            }
+           // no-op
         }
 
         [[nodiscard]] DownwardPool* pool() const noexcept {

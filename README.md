@@ -10,7 +10,7 @@
 - CMake 3.16 или новее.
 - Компилятор C++20.
 
-Проверялось на macOS. На Linux дополнительно используются флаги `MAP_GROWSDOWN` и `PROT_GROWSDOWN`, если они доступны в системных заголовках.
+Проверялось на macOS.
 
 ## Структура проекта
 
@@ -115,3 +115,23 @@ ctest --test-dir cmake-build-debug --output-on-failure
 - `Pool usable storage` - размер полезной области пула, округленный до страницы.
 - `Pool used storage` - фактически занятая память внутри пула.
 - `Overhead` - оценка накладных расходов относительно памяти под узлы.
+
+## Raw results
+
+| Metric | Baseline | Pool |
+| --- | ---: | ---: |
+| Time used (usec) | 1065 usec | 0 usec |
+| Memory used (bytes) | 3276800 bytes | 1572864 bytes |
+| Node storage required (bytes) | 1600000 bytes | 1600000 bytes |
+| Overhead (%) | 51.2% | -1.7% |
+| Pool usable storage (bytes) | - | 1601536 bytes |
+| Pool used storage (bytes) | - | 1600000 bytes |
+
+## Comparison
+
+| Metric | Baseline | Pool | Delta (Pool - Baseline) | Pool/Baseline |
+| --- | ---: | ---: | ---: | ---: |
+| Time used (usec) | 1065 usec | 0 usec | -1065 | 0.00x |
+| Memory used (bytes) | 3276800 bytes | 1572864 bytes | -1703936 | 0.48x |
+| Node storage required (bytes) | 1600000 bytes | 1600000 bytes | +0 | 1.00x |
+| Overhead (%) | 51.2% | -1.7% | -52.9% | -0.03x |

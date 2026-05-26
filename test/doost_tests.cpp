@@ -108,6 +108,7 @@ namespace {
         CHECK(pool.page_size() > 0);
         CHECK(pool.guard_bytes() == pool.page_size());
         CHECK(pool.usable_bytes() >= 128);
+        CHECK(pool.usable_bytes() % pool.page_size() == 0);
         CHECK(pool.used_bytes() == 0);
         CHECK(pool.remaining_bytes() == pool.usable_bytes());
 
@@ -131,6 +132,8 @@ namespace {
         pool.release();
         CHECK(pool.requested_bytes() == 0);
         CHECK(pool.usable_bytes() == 0);
+        CHECK(pool.guard_bytes() == 0);
+        CHECK(pool.page_size() == 0);
         CHECK(pool.used_bytes() == 0);
         CHECK(pool.remaining_bytes() == 0);
     }
@@ -142,6 +145,7 @@ namespace {
 
         doost::DownwardPool moved(std::move(source));
         CHECK(source.usable_bytes() == 0);
+        CHECK(source.guard_bytes() == 0);
         CHECK(source.used_bytes() == 0);
         CHECK(moved.usable_bytes() >= 64);
         CHECK(moved.used_bytes() >= 16);
@@ -149,6 +153,7 @@ namespace {
         doost::DownwardPool assigned(32);
         assigned = std::move(moved);
         CHECK(moved.usable_bytes() == 0);
+        CHECK(moved.guard_bytes() == 0);
         CHECK(assigned.usable_bytes() >= 64);
         CHECK(assigned.used_bytes() >= 16);
     }
