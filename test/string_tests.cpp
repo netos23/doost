@@ -146,13 +146,13 @@ namespace {
         std::ostringstream shared_output;
         shared_output << pointer;
         CHECK(shared_output.str() ==
-              "String{unique=0, value=\"line\\nvalue\"}");
+            "String{unique=0, value=\"line\\nvalue\"}");
 
         alias.reset();
         std::ostringstream unique_output;
         unique_output << pointer;
         CHECK(unique_output.str() ==
-              "String{unique=1, value=\"line\\nvalue\"}");
+            "String{unique=1, value=\"line\\nvalue\"}");
     }
 
     void test_debug_release_trace() {
@@ -217,7 +217,7 @@ namespace {
         }
         catch (const std::exception& exception) {
             std::cerr << name << ": unexpected exception: " << exception.what()
-                      << '\n';
+                << '\n';
             ++g_failures;
         }
         catch (...) {

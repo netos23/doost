@@ -29,6 +29,11 @@ namespace doost::detail {
 
         std::array<PoolRegistryEntry, kMaxRegisteredPools> g_pool_registry;
         std::mutex g_pool_registry_mutex;
+        std::atomic<bool> g_pool_signal_handler_installed{false};
+        struct sigaction g_previous_sigsegv{};
+#if defined(SIGBUS)
+        struct sigaction g_previous_sigbus{};
+#endif
 
         void write_all(const char* text) noexcept {
             if (text == nullptr) {
@@ -68,7 +73,7 @@ namespace doost::detail {
             std::lock_guard lock(g_pool_registry_mutex);
             for (std::size_t index = 0; index != g_pool_registry.size(); ++index) {
                 if (g_pool_registry[index].guard_begin.load(
-                        std::memory_order_acquire) == 0) {
+                    std::memory_order_acquire) == 0) {
                     g_pool_registry[index].name.store(name,
                                                       std::memory_order_relaxed);
                     g_pool_registry[index].guard_end.store(
@@ -116,43 +121,67 @@ namespace doost::detail {
             return nullptr;
         }
 
-        void pool_signal_handler(int signal_number, siginfo_t* info,
-                                 void*) noexcept {
-            const char* pool_name =
-                info == nullptr ? nullptr : find_pool_name(info->si_addr);
-
-            write_all("doost: ");
-            write_all(signal_name(signal_number));
-            write_all(" while accessing ");
-            if (pool_name != nullptr) {
-                write_all("guard page of pool \"");
-                write_all(pool_name);
-                write_all("\"");
+        const struct sigaction* previous_signal_action(
+            int signal_number) noexcept {
+            switch (signal_number) {
+            case SIGSEGV:
+                return &g_previous_sigsegv;
+#if defined(SIGBUS)
+            case SIGBUS:
+                return &g_previous_sigbus;
+#endif
+            default:
+                return nullptr;
             }
-            else {
-                write_all("memory outside registered pools");
-            }
-            write_all("\n");
+        }
 
-            struct sigaction action {};
+        [[noreturn]] void raise_with_default_action(int signal_number) noexcept {
+            struct sigaction action{};
             action.sa_handler = SIG_DFL;
             sigemptyset(&action.sa_mask);
             sigaction(signal_number, &action, nullptr);
             kill(getpid(), signal_number);
             _exit(128 + signal_number);
         }
-#endif
 
-#if defined(MAP_GROWSDOWN)
-        constexpr int kMapGrowDown = MAP_GROWSDOWN;
-#else
-        constexpr int kMapGrowDown = 0;
-#endif
+        [[noreturn]] void call_previous_signal_handler(
+            int signal_number, siginfo_t* info, void* context) noexcept {
+            const struct sigaction* previous =
+                previous_signal_action(signal_number);
+            if (previous == nullptr || previous->sa_handler == SIG_DFL) {
+                raise_with_default_action(signal_number);
+            }
+            if (previous->sa_handler == SIG_IGN) {
+                _exit(128 + signal_number);
+            }
 
-#if defined(PROT_GROWSDOWN)
-        constexpr int kProtGrowDown = PROT_GROWSDOWN;
-#else
-        constexpr int kProtGrowDown = 0;
+            if ((previous->sa_flags & SA_SIGINFO) != 0) {
+                previous->sa_sigaction(signal_number, info, context);
+            }
+            else {
+                previous->sa_handler(signal_number);
+            }
+
+            _exit(128 + signal_number);
+        }
+
+        void pool_signal_handler(int signal_number, siginfo_t* info,
+                                 void* context) noexcept {
+            const char* pool_name =
+                info == nullptr ? nullptr : find_pool_name(info->si_addr);
+            if (pool_name == nullptr) {
+                call_previous_signal_handler(signal_number, info, context);
+            }
+
+            write_all("doost: ");
+            write_all(signal_name(signal_number));
+            write_all(" while accessing protected pool \"");
+            write_all(pool_name);
+            write_all("\"");
+            write_all("\n");
+
+            raise_with_default_action(signal_number);
+        }
 #endif
 
 #if defined(MAP_ANONYMOUS)
@@ -164,8 +193,8 @@ namespace doost::detail {
 #endif
 
         constexpr int kPoolProtection = PROT_READ | PROT_WRITE;
-        constexpr int kPoolMapFlags = MAP_PRIVATE | kMapGrowDown;
-        constexpr int kGuardProtection = PROT_NONE | kProtGrowDown;
+        constexpr int kPoolMapFlags = MAP_PRIVATE;
+        constexpr int kGuardProtection = PROT_NONE;
 
         void* mmap_anonymous(std::size_t bytes) {
 #if defined(MAP_ANONYMOUS) || defined(MAP_ANON)
@@ -198,42 +227,31 @@ namespace doost::detail {
             return static_cast<std::size_t>(value);
         }
 
-        std::size_t round_up(std::size_t value, std::size_t multiple) {
-            const std::size_t remainder = value % multiple;
-            if (remainder == 0) {
-                return value;
-            }
-
-            const std::size_t increment = multiple - remainder;
-            if (value > std::numeric_limits<std::size_t>::max() - increment) {
-                throw std::length_error("pool size overflows size_t");
-            }
-            return value + increment;
-        }
-
-        bool is_power_of_two(std::size_t value) {
-            return value != 0 && (value & (value - 1)) == 0;
+        std::size_t round_up(std::size_t value,
+                             std::size_t multiple) noexcept {
+            const std::size_t mask = multiple - 1;
+            return (value + mask) & ~mask;
         }
     } // namespace
 
     DownwardPoolStorage make_downward_pool_storage(std::size_t usable_bytes,
                                                    const char* overflow_name) {
         DownwardPoolStorage storage;
-        storage.requested_bytes = usable_bytes;
-        storage.page_size = system_page_size();
+        const std::size_t guard_page_bytes = system_page_size();
 
         if (usable_bytes == 0) {
             usable_bytes = 1;
         }
 
-        storage.usable_bytes = round_up(usable_bytes, storage.page_size);
-        storage.guard_bytes = storage.page_size;
+        const std::size_t rounded_usable_bytes =
+            round_up(usable_bytes, guard_page_bytes);
 
-        if (storage.usable_bytes >
-            std::numeric_limits<std::size_t>::max() - storage.guard_bytes) {
+        if (rounded_usable_bytes >
+            std::numeric_limits<std::size_t>::max() - guard_page_bytes) {
             throw std::length_error("pool mapping size overflows size_t");
         }
-        storage.mapping_bytes = storage.usable_bytes + storage.guard_bytes;
+        storage.usable_bytes = rounded_usable_bytes;
+        storage.mapping_bytes = rounded_usable_bytes + guard_page_bytes;
 
         void* mapping = mmap_anonymous(storage.mapping_bytes);
         if (mapping == MAP_FAILED) {
@@ -241,10 +259,8 @@ namespace doost::detail {
         }
 
         storage.mapping_begin = static_cast<std::byte*>(mapping);
-        storage.lower_bound = storage.mapping_begin + storage.guard_bytes;
-        storage.upper_bound = storage.mapping_begin + storage.mapping_bytes;
 
-        if (mprotect(storage.mapping_begin, storage.guard_bytes,
+        if (mprotect(storage.mapping_begin, guard_page_bytes,
                      kGuardProtection) != 0) {
             const int error = errno;
             munmap(storage.mapping_begin, storage.mapping_bytes);
@@ -256,7 +272,8 @@ namespace doost::detail {
         storage.overflow_name =
             overflow_name == nullptr ? "unnamed-pool" : overflow_name;
         storage.registry_slot = register_pool_guard(
-            storage.mapping_begin, storage.lower_bound, storage.overflow_name);
+            storage.mapping_begin, storage.mapping_begin + storage.mapping_bytes,
+            storage.overflow_name);
 #else
         static_cast<void>(overflow_name);
 #endif
@@ -277,57 +294,36 @@ namespace doost::detail {
 
         storage = {};
     }
-
-    void validate_downward_pool_allocation(std::size_t& bytes,
-                                           std::size_t alignment) {
-        if (!is_power_of_two(alignment)) {
-            throw std::invalid_argument(
-                "allocation alignment must be a power of two");
-        }
-        if (bytes == 0) {
-            bytes = 1;
-        }
-    }
-
-    std::uintptr_t align_downward_pool_cursor(std::uintptr_t current,
-                                              std::size_t bytes,
-                                              std::size_t alignment) noexcept {
-        const std::uintptr_t raw = current - bytes;
-        return raw & ~(static_cast<std::uintptr_t>(alignment) - 1U);
-    }
-
-    std::size_t downward_pool_used_bytes(
-        std::uintptr_t cursor, const DownwardPoolStorage& storage) noexcept {
-        const auto upper = reinterpret_cast<std::uintptr_t>(storage.upper_bound);
-        if (cursor == 0 || upper == 0 || cursor >= upper) {
-            return 0;
-        }
-        return static_cast<std::size_t>(upper - cursor);
-    }
-
-    std::size_t downward_pool_remaining_bytes(
-        std::uintptr_t cursor, const DownwardPoolStorage& storage) noexcept {
-        const auto lower = reinterpret_cast<std::uintptr_t>(storage.lower_bound);
-        if (cursor == 0 || lower == 0 || cursor <= lower) {
-            return 0;
-        }
-        return static_cast<std::size_t>(cursor - lower);
-    }
 } // namespace doost::detail
 
 namespace doost {
     void install_pool_overflow_signal_handler() noexcept {
 #if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
-        struct sigaction action {};
+        bool expected = false;
+        if (!detail::g_pool_signal_handler_installed.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+            return;
+        }
+
+        struct sigaction action{};
         action.sa_sigaction = detail::pool_signal_handler;
         sigemptyset(&action.sa_mask);
         action.sa_flags = SA_SIGINFO;
 #if defined(SA_NODEFER)
         action.sa_flags |= SA_NODEFER;
 #endif
-        sigaction(SIGSEGV, &action, nullptr);
+        if (sigaction(SIGSEGV, &action, &detail::g_previous_sigsegv) != 0) {
+            detail::g_pool_signal_handler_installed.store(
+                false, std::memory_order_release);
+            return;
+        }
 #if defined(SIGBUS)
-        sigaction(SIGBUS, &action, nullptr);
+        if (sigaction(SIGBUS, &action, &detail::g_previous_sigbus) != 0) {
+            sigaction(SIGSEGV, &detail::g_previous_sigsegv, nullptr);
+            detail::g_pool_signal_handler_installed.store(
+                false, std::memory_order_release);
+        }
 #endif
 #endif
     }

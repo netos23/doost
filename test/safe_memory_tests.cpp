@@ -161,7 +161,7 @@ namespace {
         }
         catch (const std::exception& exception) {
             std::cerr << name << ": unexpected exception: " << exception.what()
-                      << '\n';
+                << '\n';
             ++g_failures;
         }
         catch (...) {

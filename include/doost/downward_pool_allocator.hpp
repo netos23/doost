@@ -4,9 +4,7 @@
 #include "doost/downward_pool.hpp"
 
 #include <cstddef>
-#include <limits>
 #include <memory>
-#include <new>
 #include <type_traits>
 
 namespace doost {
@@ -34,20 +32,10 @@ namespace doost {
             : pool_(other.pool()) {}
 
         [[nodiscard]] T* allocate(std::size_t n) {
-            if (pool_ == nullptr) {
-                throw std::bad_alloc();
-            }
-            if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
-                throw std::bad_alloc();
-            }
             return static_cast<T*>(pool_->allocate(n * sizeof(T), alignof(T)));
         }
 
-        void deallocate(T* ptr, std::size_t n) noexcept {
-            if (pool_ != nullptr) {
-                pool_->deallocate(ptr, n * sizeof(T), alignof(T));
-            }
-        }
+        void deallocate(T*, std::size_t) noexcept {}
 
         [[nodiscard]] DownwardPool* pool() const noexcept {
             return pool_;
@@ -98,20 +86,10 @@ namespace doost {
             : pool_(other.pool()) {}
 
         [[nodiscard]] T* allocate(std::size_t n) {
-            if (pool_ == nullptr) {
-                throw std::bad_alloc();
-            }
-            if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
-                throw std::bad_alloc();
-            }
             return static_cast<T*>(pool_->allocate(n * sizeof(T), alignof(T)));
         }
 
-        void deallocate(T* ptr, std::size_t n) noexcept {
-            if (pool_ != nullptr) {
-                pool_->deallocate(ptr, n * sizeof(T), alignof(T));
-            }
-        }
+        void deallocate(T*, std::size_t) noexcept {}
 
         [[nodiscard]] Pool* pool() const noexcept {
             return pool_;

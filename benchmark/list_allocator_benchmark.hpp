@@ -53,11 +53,11 @@ namespace doost::benchmark {
             value > std::numeric_limits<std::size_t>::max()) {
             std::cerr << "Usage: " << program << " [node-count] [thread-count]\n";
             throw std::invalid_argument(std::string(name) +
-                                        " must be a positive integer");
+                " must be a positive integer");
         }
         if (value == 0) {
             throw std::invalid_argument(std::string(name) +
-                                        " must be greater than zero");
+                " must be greater than zero");
         }
         return static_cast<std::size_t>(value);
     }
@@ -99,7 +99,7 @@ namespace doost::benchmark {
 
     inline std::uint64_t time_value_us(const struct timeval& value) {
         return static_cast<std::uint64_t>(value.tv_sec) * 1000000ULL +
-               static_cast<std::uint64_t>(value.tv_usec);
+            static_cast<std::uint64_t>(value.tv_usec);
     }
 
     inline std::uint64_t cpu_time_us(const struct rusage& start,
@@ -155,26 +155,26 @@ namespace doost::benchmark {
         std::cout << "Threads: " << options.thread_count << '\n';
         std::cout << "Node count per thread: " << options.node_count << '\n';
         std::cout << "Total nodes: "
-                  << checked_multiply(options.node_count, options.thread_count)
-                  << '\n';
+            << checked_multiply(options.node_count, options.thread_count)
+            << '\n';
         std::cout << "Time used: " << wall_time_us << " usec\n";
         std::cout << "CPU time used: " << cpu_time << " usec\n";
         std::cout << "Memory used: " << memory_used << " bytes\n";
         std::cout << "Node storage required: " << node_storage_required
-                  << " bytes\n";
+            << " bytes\n";
         std::cout << "Pool usable storage: " << pool_stats.usable_storage
-                  << " bytes\n";
+            << " bytes\n";
         std::cout << "Pool used storage: " << pool_stats.used_storage
-                  << " bytes\n";
+            << " bytes\n";
 
         const double overhead =
             memory_used == 0
                 ? 0.0
                 : (static_cast<double>(memory_used) -
-                   static_cast<double>(node_storage_required)) *
-                      100.0 / static_cast<double>(memory_used);
+                    static_cast<double>(node_storage_required)) *
+                100.0 / static_cast<double>(memory_used);
         std::cout << "Overhead: " << std::fixed << std::setw(4)
-                  << std::setprecision(1) << overhead << "%\n";
+            << std::setprecision(1) << overhead << "%\n";
     }
 
     template <class Work>
@@ -188,8 +188,8 @@ namespace doost::benchmark {
                     checked_multiply(options.node_count, options.thread_count),
                     node_size);
 
-            struct rusage start_usage {};
-            struct rusage finish_usage {};
+            struct rusage start_usage{};
+            struct rusage finish_usage{};
             get_usage(start_usage);
             const auto start = std::chrono::steady_clock::now();
 
@@ -202,7 +202,7 @@ namespace doost::benchmark {
                 static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::microseconds>(
                         finish - start)
-                        .count());
+                    .count());
             std::uint64_t memory_used = max_rss_bytes(finish_usage);
             const std::uint64_t direct_storage =
                 static_cast<std::uint64_t>(

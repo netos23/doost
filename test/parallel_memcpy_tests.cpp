@@ -34,7 +34,7 @@ namespace {
     bool equal_bytes(const std::vector<std::uint8_t>& lhs,
                      const std::vector<std::uint8_t>& rhs) {
         return lhs.size() == rhs.size() &&
-               std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+            std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
     }
 
     void check_copy_with_default_pool(std::size_t thread_count,
@@ -122,7 +122,7 @@ namespace {
         }
         catch (const std::exception& exception) {
             std::cerr << name << ": unexpected exception: " << exception.what()
-                      << '\n';
+                << '\n';
             ++g_failures;
         }
         catch (...) {

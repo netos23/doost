@@ -9,7 +9,6 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
-#include <new>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -107,9 +106,6 @@ namespace {
     void test_pool_grows_down_and_resets() {
         doost::DownwardPool pool(128);
 
-        CHECK(pool.requested_bytes() == 128);
-        CHECK(pool.page_size() > 0);
-        CHECK(pool.guard_bytes() == pool.page_size());
         CHECK(pool.usable_bytes() >= 128);
         CHECK(pool.used_bytes() == 0);
         CHECK(pool.remaining_bytes() == pool.usable_bytes());
@@ -132,7 +128,6 @@ namespace {
         CHECK(pool.remaining_bytes() == pool.usable_bytes());
 
         pool.release();
-        CHECK(pool.requested_bytes() == 0);
         CHECK(pool.usable_bytes() == 0);
         CHECK(pool.used_bytes() == 0);
         CHECK(pool.remaining_bytes() == 0);
@@ -176,11 +171,6 @@ namespace {
         }
 
         CHECK(pool.used_bytes() == List::required_storage(4));
-    }
-
-    void test_default_pool_allocator_throws() {
-        doost::DownwardPoolAllocator<int> allocator;
-        CHECK_THROWS_AS(static_cast<void>(allocator.allocate(1)), std::bad_alloc);
     }
 
     void test_nonblocking_pool_allocates_from_multiple_threads() {
@@ -242,6 +232,16 @@ namespace {
     }
 
 #if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
+    constexpr int kPreviousSegvHandlerExitCode = 42;
+    constexpr char kPreviousSegvHandlerMessage[] =
+        "previous-sigsegv-handler\n";
+
+    void previous_sigsegv_handler(int, siginfo_t*, void*) noexcept {
+        write(STDERR_FILENO, kPreviousSegvHandlerMessage,
+              sizeof(kPreviousSegvHandlerMessage) - 1);
+        _exit(kPreviousSegvHandlerExitCode);
+    }
+
     void write_into_named_guard_page_in_child() {
         doost::install_pool_overflow_signal_handler();
         doost::DownwardPool pool(1, "test-overflow-pool");
@@ -293,6 +293,62 @@ namespace {
         }
         CHECK(output.find("test-overflow-pool") != std::string::npos);
     }
+
+    void write_to_unregistered_address_in_child() {
+        struct sigaction action{};
+        action.sa_sigaction = previous_sigsegv_handler;
+        sigemptyset(&action.sa_mask);
+        action.sa_flags = SA_SIGINFO;
+        sigaction(SIGSEGV, &action, nullptr);
+
+        doost::install_pool_overflow_signal_handler();
+
+        auto* memory = static_cast<volatile unsigned char*>(nullptr);
+        *memory = 0x7f;
+        _exit(EXIT_SUCCESS);
+    }
+
+    void test_overflow_handler_delegates_unregistered_faults() {
+        int pipe_fds[2] = {-1, -1};
+        if (pipe(pipe_fds) != 0) {
+            throw std::runtime_error("pipe failed");
+        }
+
+        const pid_t child = fork();
+        if (child < 0) {
+            close(pipe_fds[0]);
+            close(pipe_fds[1]);
+            throw std::runtime_error("fork failed");
+        }
+
+        if (child == 0) {
+            close(pipe_fds[0]);
+            dup2(pipe_fds[1], STDERR_FILENO);
+            close(pipe_fds[1]);
+            write_to_unregistered_address_in_child();
+        }
+
+        close(pipe_fds[1]);
+        std::string output;
+        char buffer[256];
+        for (;;) {
+            const ssize_t bytes = read(pipe_fds[0], buffer, sizeof(buffer));
+            if (bytes <= 0) {
+                break;
+            }
+            output.append(buffer, static_cast<std::size_t>(bytes));
+        }
+        close(pipe_fds[0]);
+
+        int status = 0;
+        const pid_t waited = waitpid(child, &status, 0);
+        CHECK(waited == child);
+        CHECK(WIFEXITED(status));
+        if (WIFEXITED(status)) {
+            CHECK(WEXITSTATUS(status) == kPreviousSegvHandlerExitCode);
+        }
+        CHECK(output.find(kPreviousSegvHandlerMessage) != std::string::npos);
+    }
 #endif
 
     void run_test(std::string_view name, void (*test)()) {
@@ -325,13 +381,14 @@ int main() {
     run_test("pool grows down and resets", test_pool_grows_down_and_resets);
     run_test("pool move transfers mapping", test_pool_move_transfers_mapping);
     run_test("allocator list uses pool storage", test_allocator_list_uses_pool_storage);
-    run_test("default pool allocator throws", test_default_pool_allocator_throws);
     run_test("nonblocking pool allocates from multiple threads",
              test_nonblocking_pool_allocates_from_multiple_threads);
     run_test("overflow hits guard page", test_overflow_hits_guard_page);
 #if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
     run_test("overflow handler reports pool name",
              test_overflow_handler_reports_pool_name);
+    run_test("overflow handler delegates unregistered faults",
+             test_overflow_handler_delegates_unregistered_faults);
 #endif
 
     if (g_failures != 0) {

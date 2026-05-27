@@ -55,7 +55,6 @@ void* doost::parallel_memcpy(void* dst, const void* src, std::size_t size);
 - CMake 3.16 или новее.
 - Компилятор C++20.
 
-Проверялось на macOS. На Linux дополнительно используются флаги `MAP_GROWSDOWN` и `PROT_GROWSDOWN`, если они доступны в системных заголовках.
 
 ## Структура проекта
 

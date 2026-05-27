@@ -14,7 +14,6 @@ option(DOOST_ENABLE_SIGSEGV_HANDLER
 add_library(doost_pool STATIC
         src/downward_pool.cpp
         src/downward_pool_storage.cpp
-        src/mutex_downward_pool.cpp
         src/nonblocking_downward_pool.cpp
 )
 target_include_directories(doost_pool PUBLIC

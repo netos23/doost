@@ -39,7 +39,7 @@ namespace {
     bool same_bytes(const std::vector<std::uint8_t>& lhs,
                     const std::vector<std::uint8_t>& rhs) {
         return lhs.size() == rhs.size() &&
-               std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+            std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
     }
 
     double mib_per_second(std::size_t bytes, double seconds) {
@@ -56,11 +56,13 @@ int main(int argc, char** argv) {
         const std::size_t bytes =
             argc > 1 ? parse_size(argv[1], "byte count") : kDefaultBytes;
         const std::size_t max_threads =
-            argc > 2 ? parse_size(argv[2], "max thread count")
-                     : kDefaultMaxThreads;
+            argc > 2
+                ? parse_size(argv[2], "max thread count")
+                : kDefaultMaxThreads;
         const unsigned repeats =
-            argc > 3 ? static_cast<unsigned>(parse_size(argv[3], "repeat count"))
-                     : kDefaultRepeats;
+            argc > 3
+                ? static_cast<unsigned>(parse_size(argv[3], "repeat count"))
+                : kDefaultRepeats;
         if (repeats == 0) {
             throw std::invalid_argument("repeat count must be positive");
         }
@@ -90,7 +92,7 @@ int main(int argc, char** argv) {
                 if (result != destination.data() ||
                     !same_bytes(source, destination)) {
                     std::cerr << "copy verification failed for thread count "
-                              << thread_count << '\n';
+                        << thread_count << '\n';
                     return EXIT_FAILURE;
                 }
 
@@ -104,7 +106,7 @@ int main(int argc, char** argv) {
             const auto best_microseconds =
                 static_cast<long long>(best_seconds * 1'000'000.0);
             std::cout << thread_count << ", " << best_microseconds << ", "
-                      << mib_per_second(bytes, best_seconds) << '\n';
+                << mib_per_second(bytes, best_seconds) << '\n';
         }
     }
     catch (const std::exception& exception) {

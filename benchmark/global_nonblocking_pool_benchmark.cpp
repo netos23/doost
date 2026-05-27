@@ -22,8 +22,10 @@ int main(int argc, const char* argv[]) {
                 list.release_nodes();
             });
 
-            const doost::benchmark::PoolStats stats{pool.usable_bytes(),
-                                                    pool.used_bytes()};
+            const doost::benchmark::PoolStats stats{
+                pool.usable_bytes(),
+                pool.used_bytes()
+            };
             pool.release();
             return stats;
         });

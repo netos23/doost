@@ -79,7 +79,8 @@ namespace doost {
             std::atomic_signal_fence(std::memory_order_seq_cst);
             g_read_active = 0;
             result = value;
-        } else {
+        }
+        else {
             g_read_active = 0;
             result = std::nullopt;
         }
