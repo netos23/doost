@@ -10,6 +10,8 @@
 
 namespace doost {
     namespace {
+        constexpr std::size_t kMinParallelCopyBytes = 1024 * 1024;
+
         void copy_chunk(std::byte* dst, const std::byte* src, std::size_t size,
                         std::size_t chunk_count, std::size_t chunk_index) {
             const std::size_t base_size = size / chunk_count;
@@ -89,7 +91,7 @@ namespace doost {
         }
 
         const std::size_t worker_count = thread_count();
-        if (worker_count == 0) {
+        if (worker_count == 0 || size <= kMinParallelCopyBytes) {
             return std::memcpy(dst, src, size);
         }
 

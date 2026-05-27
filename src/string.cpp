@@ -174,11 +174,13 @@ namespace doost {
             if constexpr (string_debug_trace_enabled) {
                 if (std::ostream* stream = debug_trace_stream()) {
                     *stream << "String release: \"";
-                    print_escaped(*stream, block->data);
+                    print_escaped(*stream, block_data(block));
                     *stream << "\"\n";
                 }
             }
-            ::operator delete(block);
+            auto* storage = reinterpret_cast<char*>(block);
+            block->~Block();
+            delete[] storage;
             return;
         }
 
@@ -203,16 +205,24 @@ namespace doost {
 
     String::Block* String::make_block(const char* value, std::size_t length) {
         static_assert(alignof(Block) >= 2);
-        static_assert(offsetof(Block, data) == sizeof(String*));
 
-        const std::size_t bytes = offsetof(Block, data) + length + 1;
-        auto* block = static_cast<Block*>(::operator new(bytes));
-        block->first = nullptr;
+        const std::size_t bytes = sizeof(Block) + length + 1;
+        auto* storage = new char[bytes];
+        auto* block = new (storage) Block{nullptr};
+        char* data = block_data(block);
         if (length != 0) {
-            std::memcpy(block->data, value, length);
+            std::memcpy(data, value, length);
         }
-        block->data[length] = '\0';
+        data[length] = '\0';
         return block;
+    }
+
+    char* String::block_data(Block* block) noexcept {
+        return reinterpret_cast<char*>(block + 1);
+    }
+
+    const char* String::block_data(const Block* block) noexcept {
+        return reinterpret_cast<const char*>(block + 1);
     }
 
     void String::replace_owner(Block* block, String* previous, String* next,

@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cstring>
 #include <iosfwd>
-#include <limits>
 #include <string>
 #include <string_view>
 
@@ -62,37 +61,40 @@ namespace doost {
     private:
         struct Block {
             String* first;
-            char data[1];
         };
 
         struct TaggedBlockPointer {
             [[nodiscard]] Block* pointer() const noexcept {
                 return reinterpret_cast<Block*>(
-                    static_cast<std::uintptr_t>(address_without_low_bit) << 1U);
+                    tagged_address & kAddressMask);
             }
 
             [[nodiscard]] bool unique() const noexcept {
-                return uniqueness_bit != 0;
+                return (tagged_address & kUniqueMask) != 0;
             }
 
             void set(Block* block, bool unique_block) noexcept {
-                address_without_low_bit =
-                    reinterpret_cast<std::uintptr_t>(block) >> 1U;
-                uniqueness_bit = unique_block ? 1U : 0U;
+                tagged_address = reinterpret_cast<std::uintptr_t>(block);
+                set_unique(unique_block);
             }
 
             void set_unique(bool unique_block) noexcept {
-                uniqueness_bit = unique_block ? 1U : 0U;
+                if (unique_block) {
+                    tagged_address |= kUniqueMask;
+                }
+                else {
+                    tagged_address &= kAddressMask;
+                }
             }
 
             void reset() noexcept {
-                address_without_low_bit = 0;
-                uniqueness_bit = 0;
+                tagged_address = 0;
             }
 
-            std::uintptr_t uniqueness_bit : 1 = 0;
-            std::uintptr_t address_without_low_bit
-            : std::numeric_limits<std::uintptr_t>::digits - 1 = 0;
+            static constexpr std::uintptr_t kUniqueMask = 1U;
+            static constexpr std::uintptr_t kAddressMask = ~kUniqueMask;
+
+            std::uintptr_t tagged_address = 0;
         };
 
         static_assert(sizeof(TaggedBlockPointer) == sizeof(std::uintptr_t));
@@ -102,6 +104,8 @@ namespace doost {
         void move_from(String& other) noexcept;
 
         static Block* make_block(const char* value, std::size_t length);
+        static char* block_data(Block* block) noexcept;
+        static const char* block_data(const Block* block) noexcept;
         static void replace_owner(Block* block, String* previous, String* next,
                                   String* replacement) noexcept;
 
@@ -154,7 +158,7 @@ namespace doost {
 
     [[nodiscard]] inline const char* String::c_str() const noexcept {
         const Block* block = block_.pointer();
-        return block == nullptr ? "" : block->data;
+        return block == nullptr ? "" : block_data(block);
     }
 
     [[nodiscard]] inline std::string String::value() const {
