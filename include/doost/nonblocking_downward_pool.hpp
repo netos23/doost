@@ -29,7 +29,6 @@ namespace doost {
 
         [[nodiscard]] std::size_t usable_bytes() const noexcept;
         [[nodiscard]] std::size_t used_bytes() const noexcept;
-        [[nodiscard]] std::size_t remaining_bytes() const noexcept;
 
     private:
         void move_from(NonblockingDownwardPool& other) noexcept;
@@ -81,12 +80,6 @@ namespace doost {
     [[nodiscard]] inline std::size_t NonblockingDownwardPool::used_bytes()
     const noexcept {
         return detail::downward_pool_used_bytes(
-            cursor_.load(std::memory_order_relaxed), storage_);
-    }
-
-    [[nodiscard]] inline std::size_t
-    NonblockingDownwardPool::remaining_bytes() const noexcept {
-        return detail::downward_pool_remaining_bytes(
             cursor_.load(std::memory_order_relaxed), storage_);
     }
 

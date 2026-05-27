@@ -227,6 +227,11 @@ namespace doost::detail {
             return static_cast<std::size_t>(value);
         }
 
+        std::size_t system_page_size_noexcept() noexcept {
+            const long value = sysconf(_SC_PAGESIZE);
+            return value <= 0 ? 0 : static_cast<std::size_t>(value);
+        }
+
         std::size_t round_up(std::size_t value,
                              std::size_t multiple) noexcept {
             const std::size_t mask = multiple - 1;
@@ -250,7 +255,6 @@ namespace doost::detail {
             std::numeric_limits<std::size_t>::max() - guard_page_bytes) {
             throw std::length_error("pool mapping size overflows size_t");
         }
-        storage.usable_bytes = rounded_usable_bytes;
         storage.mapping_bytes = rounded_usable_bytes + guard_page_bytes;
 
         void* mapping = mmap_anonymous(storage.mapping_bytes);
@@ -279,6 +283,20 @@ namespace doost::detail {
 #endif
 
         return storage;
+    }
+
+    std::size_t downward_pool_usable_bytes(
+        const DownwardPoolStorage& storage) noexcept {
+        if (storage.mapping_bytes == 0) {
+            return 0;
+        }
+
+        const std::size_t guard_page_bytes = system_page_size_noexcept();
+        if (guard_page_bytes == 0 || storage.mapping_bytes <= guard_page_bytes) {
+            return 0;
+        }
+
+        return storage.mapping_bytes - guard_page_bytes;
     }
 
     void release_downward_pool_storage(DownwardPoolStorage& storage) noexcept {

@@ -8,7 +8,6 @@ namespace doost::detail {
     struct DownwardPoolStorage {
         std::byte* mapping_begin = nullptr;
         std::size_t mapping_bytes = 0;
-        std::size_t usable_bytes = 0;
 #if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
         int registry_slot = -1;
         const char* overflow_name = nullptr;
@@ -27,10 +26,8 @@ namespace doost::detail {
         return storage.mapping_begin + storage.mapping_bytes;
     }
 
-    [[nodiscard]] inline std::size_t downward_pool_usable_bytes(
-        const DownwardPoolStorage& storage) noexcept {
-        return storage.usable_bytes;
-    }
+    [[nodiscard]] std::size_t downward_pool_usable_bytes(
+        const DownwardPoolStorage& storage) noexcept;
 
     [[nodiscard]] inline std::uintptr_t align_downward_pool_cursor(
         std::uintptr_t current, std::size_t bytes,
@@ -47,15 +44,6 @@ namespace doost::detail {
             return 0;
         }
         return static_cast<std::size_t>(upper - cursor);
-    }
-
-    [[nodiscard]] inline std::size_t downward_pool_remaining_bytes(
-        std::uintptr_t cursor, const DownwardPoolStorage& storage) noexcept {
-        if (cursor == 0) {
-            return 0;
-        }
-        const std::size_t used = downward_pool_used_bytes(cursor, storage);
-        return used < storage.usable_bytes ? storage.usable_bytes - used : 0;
     }
 } // namespace doost::detail
 

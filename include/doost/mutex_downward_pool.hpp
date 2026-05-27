@@ -23,7 +23,6 @@ namespace doost {
 
         [[nodiscard]] std::size_t usable_bytes() const noexcept;
         [[nodiscard]] std::size_t used_bytes() const noexcept;
-        [[nodiscard]] std::size_t remaining_bytes() const noexcept;
 
     private:
         DownwardPool pool_;
@@ -60,12 +59,6 @@ namespace doost {
     const noexcept {
         std::lock_guard lock(mutex_);
         return pool_.used_bytes();
-    }
-
-    [[nodiscard]] inline std::size_t MutexDownwardPool::remaining_bytes()
-    const noexcept {
-        std::lock_guard lock(mutex_);
-        return pool_.remaining_bytes();
     }
 } // namespace doost
 

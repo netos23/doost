@@ -3,6 +3,7 @@
 #include "doost/list.hpp"
 #include "doost/nonblocking_downward_pool.hpp"
 
+#include <algorithm>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -56,6 +57,14 @@ namespace {
         return address % alignment == 0;
     }
 
+    std::size_t system_page_size() {
+        const long value = sysconf(_SC_PAGESIZE);
+        if (value <= 0) {
+            throw std::runtime_error("sysconf(_SC_PAGESIZE) failed");
+        }
+        return static_cast<std::size_t>(value);
+    }
+
     void test_list_push_pop_and_iteration() {
         doost::List<int> list;
         CHECK(list.empty());
@@ -106,10 +115,6 @@ namespace {
     void test_pool_grows_down_and_resets() {
         doost::DownwardPool pool(128);
 
-        CHECK(pool.usable_bytes() >= 128);
-        CHECK(pool.used_bytes() == 0);
-        CHECK(pool.remaining_bytes() == pool.usable_bytes());
-
         auto* first = static_cast<std::max_align_t*>(
             pool.allocate(sizeof(std::max_align_t), alignof(std::max_align_t)));
         auto* second = static_cast<std::max_align_t*>(
@@ -120,35 +125,36 @@ namespace {
         CHECK(second_address < first_address);
         CHECK(is_aligned(first, alignof(std::max_align_t)));
         CHECK(is_aligned(second, alignof(std::max_align_t)));
-        CHECK(pool.used_bytes() >= 2 * sizeof(std::max_align_t));
-        CHECK(pool.remaining_bytes() < pool.usable_bytes());
 
         pool.reset();
-        CHECK(pool.used_bytes() == 0);
-        CHECK(pool.remaining_bytes() == pool.usable_bytes());
+        auto* reset = static_cast<std::max_align_t*>(
+            pool.allocate(sizeof(std::max_align_t), alignof(std::max_align_t)));
+        CHECK(reinterpret_cast<std::uintptr_t>(reset) == first_address);
+        CHECK(is_aligned(reset, alignof(std::max_align_t)));
 
         pool.release();
-        CHECK(pool.usable_bytes() == 0);
-        CHECK(pool.used_bytes() == 0);
-        CHECK(pool.remaining_bytes() == 0);
     }
 
     void test_pool_move_transfers_mapping() {
         doost::DownwardPool source(64);
-        static_cast<void>(source.allocate(16, alignof(std::max_align_t)));
-        CHECK(source.used_bytes() >= 16);
+        auto* first = static_cast<std::max_align_t*>(
+            source.allocate(sizeof(std::max_align_t), alignof(std::max_align_t)));
+        const auto first_address = reinterpret_cast<std::uintptr_t>(first);
 
         doost::DownwardPool moved(std::move(source));
-        CHECK(source.usable_bytes() == 0);
-        CHECK(source.used_bytes() == 0);
-        CHECK(moved.usable_bytes() >= 64);
-        CHECK(moved.used_bytes() >= 16);
+        auto* second = static_cast<std::max_align_t*>(
+            moved.allocate(sizeof(std::max_align_t), alignof(std::max_align_t)));
+        const auto second_address = reinterpret_cast<std::uintptr_t>(second);
+        CHECK(second_address < first_address);
+        CHECK(is_aligned(second, alignof(std::max_align_t)));
 
         doost::DownwardPool assigned(32);
         assigned = std::move(moved);
-        CHECK(moved.usable_bytes() == 0);
-        CHECK(assigned.usable_bytes() >= 64);
-        CHECK(assigned.used_bytes() >= 16);
+        auto* third = static_cast<std::max_align_t*>(
+            assigned.allocate(sizeof(std::max_align_t), alignof(std::max_align_t)));
+        const auto third_address = reinterpret_cast<std::uintptr_t>(third);
+        CHECK(third_address < second_address);
+        CHECK(is_aligned(third, alignof(std::max_align_t)));
     }
 
     void test_allocator_list_uses_pool_storage() {
@@ -165,12 +171,10 @@ namespace {
 
             CHECK(list.size() == 4);
             CHECK(values_from(list) == std::vector<unsigned>({4, 3, 2, 1}));
-            CHECK(pool.used_bytes() == List::required_storage(4));
 
             list.release_nodes();
+            CHECK(list.empty());
         }
-
-        CHECK(pool.used_bytes() == List::required_storage(4));
     }
 
     void test_nonblocking_pool_allocates_from_multiple_threads() {
@@ -183,14 +187,20 @@ namespace {
         doost::NonblockingDownwardPool pool(allocation_count * allocation_size,
                                             "test-nonblocking-pool");
 
+        std::vector<std::uintptr_t> addresses(allocation_count);
         std::vector<std::thread> threads;
         threads.reserve(thread_count);
         for (unsigned thread = 0; thread != thread_count; ++thread) {
-            threads.emplace_back([&] {
+            threads.emplace_back([&, thread] {
                 for (unsigned allocation = 0; allocation != allocations_per_thread;
                      ++allocation) {
-                    static_cast<void>(
-                        pool.allocate(allocation_size, alignof(std::max_align_t)));
+                    void* memory =
+                        pool.allocate(allocation_size, alignof(std::max_align_t));
+                    auto* bytes = static_cast<unsigned char*>(memory);
+                    bytes[0] = 0x5a;
+                    bytes[allocation_size - 1] = 0xa5;
+                    addresses[thread * allocations_per_thread + allocation] =
+                        reinterpret_cast<std::uintptr_t>(memory);
                 }
             });
         }
@@ -199,14 +209,19 @@ namespace {
             thread.join();
         }
 
-        CHECK(pool.used_bytes() == allocation_count * allocation_size);
-        CHECK(pool.remaining_bytes() + pool.used_bytes() == pool.usable_bytes());
+        std::sort(addresses.begin(), addresses.end());
+        CHECK(addresses.front() != 0);
+        CHECK(std::adjacent_find(addresses.begin(), addresses.end()) ==
+            addresses.end());
+        for (const std::uintptr_t address : addresses) {
+            CHECK(address % alignof(std::max_align_t) == 0);
+        }
     }
 
     void write_into_guard_page_in_child() {
         doost::DownwardPool pool(1);
         auto* memory = static_cast<volatile unsigned char*>(
-            pool.allocate(pool.usable_bytes() + 1, alignof(unsigned char)));
+            pool.allocate(system_page_size() + 1, alignof(unsigned char)));
         *memory = 0x7f;
         _exit(EXIT_SUCCESS);
     }
@@ -246,7 +261,7 @@ namespace {
         doost::install_pool_overflow_signal_handler();
         doost::DownwardPool pool(1, "test-overflow-pool");
         auto* memory = static_cast<volatile unsigned char*>(
-            pool.allocate(pool.usable_bytes() + 1, alignof(unsigned char)));
+            pool.allocate(system_page_size() + 1, alignof(unsigned char)));
         *memory = 0x7f;
         _exit(EXIT_SUCCESS);
     }

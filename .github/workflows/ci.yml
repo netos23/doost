@@ -92,4 +92,4 @@ jobs:
         run: ./build/string_benchmark 1000
 
       - name: Run parallel memcpy smoke benchmark
-        run: ./build/parallel_memcpy_benchmark 1048576 2 1
+        run: ./build/parallel_memcpy_benchmark 268435456 8 1

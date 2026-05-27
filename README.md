@@ -4,6 +4,26 @@
 
 Основная цель: сравнить обычное поэлементное выделение узлов списка через `new/delete` с выделением узлов из заранее зарезервированного пула.
 
+## Raw results
+
+| Metric | Baseline | Pool |
+| --- | ---: | ---: |
+| Time used (usec) | 2275 usec | 0 usec |
+| Memory used (bytes) | 3276800 bytes | 1712128 bytes |
+| Node storage required (bytes) | 1600000 bytes | 1600000 bytes |
+| Overhead (%) | 51.2% |  6.5% |
+| Pool usable storage (bytes) | - | 1601536 bytes |
+| Pool used storage (bytes) | - | 1600000 bytes |
+
+## Comparison
+
+| Metric | Baseline | Pool | Delta (Pool - Baseline) | Pool/Baseline |
+| --- | ---: | ---: | ---: | ---: |
+| Time used (usec) | 2275 usec | 0 usec | -2275 | 0.00x |
+| Memory used (bytes) | 3276800 bytes | 1712128 bytes | -1564672 | 0.52x |
+| Node storage required (bytes) | 1600000 bytes | 1600000 bytes | +0 | 1.00x |
+| Overhead (%) | 51.2% |  6.5% | -44.7% | 0.13x |
+
 # Неблокирующая реализация растущего вниз последовательного пула для элементов списка
 
 На базе предыдущего задания добавлены многопоточные варианты аллокации элементов списка. Для списка длиной `10000000` в каждом из `16` потоков сравниваются 4 способа выделения узлов:
@@ -14,6 +34,95 @@
 - локальные последовательные пулы в потоках.
 
 Обработчик `SIGSEGV`/`SIGBUS` включается флагом `DOOST_ENABLE_SIGSEGV_HANDLER` и при попадании в guard page печатает имя переполненного пула.
+
+## Benchmark parameters
+
+- Node count per thread: 100000
+- Threads: 16
+
+## Raw results
+
+| Allocator | Wall time (usec) | CPU time (usec) | Memory used (bytes) | Node storage required (bytes) | Pool usable storage (bytes) | Pool used storage (bytes) | Overhead |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| standard-new-delete | 34358 | 126269 | 45195264 | 25600000 | 0 | 0 | 43.4% |
+| global-mutex-pool | 105029 | 410764 | 29294592 | 25600000 | 25600000 | 25600000 | 12.6% |
+| global-nonblocking-pool | 55684 | 164717 | 29302784 | 25600000 | 25600000 | 25600000 | 12.6% |
+| thread-local-pools | 7311 | 19280 | 25624576 | 25600000 | 25624576 | 25600000 | 0.1% |
+
+## Comparison Against Standard Allocator
+
+| Allocator | Wall delta | Wall ratio | Memory delta | Memory ratio | Overhead delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| standard-new-delete | +0 | 1.00x | +0 | 1.00x | +0.0% |
+| global-mutex-pool | +70671 | 3.06x | -15900672 | 0.65x | -30.8% |
+| global-nonblocking-pool | +21326 | 1.62x | -15892480 | 0.65x | -30.8% |
+| thread-local-pools | -27047 | 0.21x | -19570688 | 0.57x | -43.3% |
+
+## Raw Program Output
+
+### standard-new-delete
+
+```text
+Allocator: standard-new-delete
+Threads: 16
+Node count per thread: 100000
+Total nodes: 1600000
+Time used: 34358 usec
+CPU time used: 126269 usec
+Memory used: 45195264 bytes
+Node storage required: 25600000 bytes
+Pool usable storage: 0 bytes
+Pool used storage: 0 bytes
+Overhead: 43.4%
+```
+
+### global-mutex-pool
+
+```text
+Allocator: global-mutex-pool
+Threads: 16
+Node count per thread: 100000
+Total nodes: 1600000
+Time used: 105029 usec
+CPU time used: 410764 usec
+Memory used: 29294592 bytes
+Node storage required: 25600000 bytes
+Pool usable storage: 25600000 bytes
+Pool used storage: 25600000 bytes
+Overhead: 12.6%
+```
+
+### global-nonblocking-pool
+
+```text
+Allocator: global-nonblocking-pool
+Threads: 16
+Node count per thread: 100000
+Total nodes: 1600000
+Time used: 55684 usec
+CPU time used: 164717 usec
+Memory used: 29302784 bytes
+Node storage required: 25600000 bytes
+Pool usable storage: 25600000 bytes
+Pool used storage: 25600000 bytes
+Overhead: 12.6%
+```
+
+### thread-local-pools
+
+```text
+Allocator: thread-local-pools
+Threads: 16
+Node count per thread: 100000
+Total nodes: 1600000
+Time used: 7311 usec
+CPU time used: 19280 usec
+Memory used: 25624576 bytes
+Node storage required: 25600000 bytes
+Pool usable storage: 25624576 bytes
+Pool used storage: 25600000 bytes
+Overhead:  0.1%
+```
 
 # Автоматическое освобождение строк с однобитовым счётчиком
 
@@ -28,6 +137,17 @@
 - печать в поток в формате `String{unique=1, value="text"}`;
 - `reset`, `swap`, move-семантика, сравнение для сортировки;
 - трассировка освобождения строк в debug-сборке через `String::set_debug_trace`.
+
+```text
+Time used: 3729 usec
+Memory used: 131072 bytes
+String count: 1000
+External aliases: 125
+Unique before sort: 875
+Unique after sort: 875
+First value after sort: string-1
+Last value after sort: string-999
+```
 
 # Безопасное чтение байта памяти по адресу
 
@@ -48,6 +168,18 @@ void* doost::parallel_memcpy(void* dst, const void* src, std::size_t size);
 ```
 
 Число worker-потоков задается через `doost::set_parallel_memcpy_thread_count`. При копировании диапазон делится на части, а поток приложения забирает работу из той же очереди, что и worker-потоки. При `0` worker-потоков используется обычный `std::memcpy`.
+
+# Результаты
+
+```text
+Bytes: 1048576
+Repeats: 1
+Threads, Best us, MiB/s
+0, 28, 35208.8
+1, 47, 21150.6
+2, 46, 21313.3
+```
+
 
 ## Требования
 
