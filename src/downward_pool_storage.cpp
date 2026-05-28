@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cerrno>
 #include <csignal>
+#include <cstring>
 #include <cstdlib>
 #include <limits>
 #include <mutex>
@@ -28,7 +29,6 @@ namespace doost::detail {
         };
 
         std::array<PoolRegistryEntry, kMaxRegisteredPools> g_pool_registry;
-        std::mutex g_pool_registry_mutex;
         std::atomic<bool> g_pool_signal_handler_installed{false};
         struct sigaction g_previous_sigsegv{};
 #if defined(SIGBUS)
@@ -40,19 +40,8 @@ namespace doost::detail {
                 return;
             }
 
-            std::size_t size = 0;
-            while (text[size] != '\0') {
-                ++size;
-            }
-
-            while (size != 0) {
-                const ssize_t written = write(STDERR_FILENO, text, size);
-                if (written <= 0) {
-                    return;
-                }
-                text += written;
-                size -= static_cast<std::size_t>(written);
-            }
+            const std::size_t size = std::strlen(text);
+            write(STDERR_FILENO, text, size);
         }
 
         const char* signal_name(int signal_number) noexcept {
@@ -68,20 +57,22 @@ namespace doost::detail {
             }
         }
 
-        int register_pool_guard(std::byte* guard_begin, std::byte* guard_end,
-                                const char* name) noexcept {
-            std::lock_guard lock(g_pool_registry_mutex);
+        int register_pool_guard(
+            std::byte* guard_begin,
+            std::byte* guard_end,
+            const char* name
+        ) noexcept {
             for (std::size_t index = 0; index != g_pool_registry.size(); ++index) {
-                if (g_pool_registry[index].guard_begin.load(
-                    std::memory_order_acquire) == 0) {
-                    g_pool_registry[index].name.store(name,
-                                                      std::memory_order_relaxed);
+                if (g_pool_registry[index].guard_begin.load(std::memory_order_acquire) == 0) {
+                    g_pool_registry[index].name.store(name, std::memory_order_relaxed);
                     g_pool_registry[index].guard_end.store(
                         reinterpret_cast<std::uintptr_t>(guard_end),
-                        std::memory_order_relaxed);
+                        std::memory_order_relaxed
+                    );
                     g_pool_registry[index].guard_begin.store(
                         reinterpret_cast<std::uintptr_t>(guard_begin),
-                        std::memory_order_release);
+                        std::memory_order_release
+                    );
                     return static_cast<int>(index);
                 }
             }
@@ -104,8 +95,7 @@ namespace doost::detail {
         const char* find_pool_name(void* fault_address) noexcept {
             const auto address = reinterpret_cast<std::uintptr_t>(fault_address);
             for (const auto& entry : g_pool_registry) {
-                const std::uintptr_t begin =
-                    entry.guard_begin.load(std::memory_order_acquire);
+                const std::uintptr_t begin = entry.guard_begin.load(std::memory_order_acquire);
                 if (begin == 0) {
                     continue;
                 }

@@ -37,22 +37,20 @@ namespace {
             std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
     }
 
-    void check_copy_with_default_pool(std::size_t thread_count,
-                                      std::size_t size) {
-        doost::set_parallel_memcpy_thread_count(thread_count);
-        CHECK(doost::parallel_memcpy_thread_count() == thread_count);
+    void check_copy_with_pool(std::size_t thread_count, std::size_t size) {
+        doost::ParallelMemcpyPool pool(thread_count);
+        CHECK(pool.thread_count() == thread_count);
 
         const std::vector<std::uint8_t> source = make_source(size);
         std::vector<std::uint8_t> destination(size, 0xa5);
 
-        void* result =
-            doost::parallel_memcpy(destination.data(), source.data(), size);
+        void* result = pool.copy(destination.data(), source.data(), size);
 
         CHECK(result == destination.data());
         CHECK(equal_bytes(source, destination));
     }
 
-    void test_default_pool_copies_with_zero_to_eight_workers() {
+    void test_fixed_pools_copy_with_zero_to_eight_workers() {
         constexpr std::size_t one_mebibyte = 1024 * 1024;
         const std::size_t sizes[] = {
             0,
@@ -65,7 +63,7 @@ namespace {
 
         for (std::size_t thread_count = 0; thread_count <= 8; ++thread_count) {
             for (std::size_t size : sizes) {
-                check_copy_with_default_pool(thread_count, size);
+                check_copy_with_pool(thread_count, size);
             }
         }
     }
@@ -87,32 +85,32 @@ namespace {
         }
     }
 
-    void test_pool_can_be_resized() {
-        doost::ParallelMemcpyPool pool(1);
-        CHECK(pool.thread_count() == 1);
-
-        pool.set_thread_count(6);
-        CHECK(pool.thread_count() == 6);
+    void test_zero_worker_pool_uses_memcpy_path() {
+        doost::ParallelMemcpyPool pool(0);
+        CHECK(pool.thread_count() == 0);
 
         const std::vector<std::uint8_t> source = make_source(512 * 1024 + 11);
         std::vector<std::uint8_t> destination(source.size(), 0);
         static_cast<void>(
             pool.copy(destination.data(), source.data(), source.size()));
         CHECK(equal_bytes(source, destination));
-
-        pool.set_thread_count(0);
-        CHECK(pool.thread_count() == 0);
-
-        std::fill(destination.begin(), destination.end(), 0);
-        static_cast<void>(
-            pool.copy(destination.data(), source.data(), source.size()));
-        CHECK(equal_bytes(source, destination));
     }
 
     void test_zero_size_accepts_null_pointers() {
-        doost::set_parallel_memcpy_thread_count(3);
-        void* result = doost::parallel_memcpy(nullptr, nullptr, 0);
+        doost::ParallelMemcpyPool pool(3);
+        void* result = pool.copy(nullptr, nullptr, 0);
         CHECK(result == nullptr);
+    }
+
+    void test_default_parallel_memcpy_function_copies() {
+        const std::vector<std::uint8_t> source = make_source(1024 * 1024 + 17);
+        std::vector<std::uint8_t> destination(source.size(), 0);
+
+        void* result = doost::parallel_memcpy(
+            destination.data(), source.data(), source.size());
+
+        CHECK(result == destination.data());
+        CHECK(equal_bytes(source, destination));
     }
 
     void run_test(std::string_view name, void (*test)()) {
@@ -140,11 +138,14 @@ namespace {
 } // namespace
 
 int main() {
-    run_test("default pool copies with zero to eight workers",
-             test_default_pool_copies_with_zero_to_eight_workers);
+    run_test("fixed pools copy with zero to eight workers",
+             test_fixed_pools_copy_with_zero_to_eight_workers);
     run_test("explicit pool copies repeatedly", test_explicit_pool_copies_repeatedly);
-    run_test("pool can be resized", test_pool_can_be_resized);
+    run_test("zero worker pool uses memcpy path",
+             test_zero_worker_pool_uses_memcpy_path);
     run_test("zero size accepts null pointers", test_zero_size_accepts_null_pointers);
+    run_test("default parallel memcpy function copies",
+             test_default_parallel_memcpy_function_copies);
 
     if (g_failures != 0) {
         std::cerr << g_failures << " test check(s) failed\n";

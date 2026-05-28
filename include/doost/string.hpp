@@ -65,8 +65,7 @@ namespace doost {
 
         struct TaggedBlockPointer {
             [[nodiscard]] Block* pointer() const noexcept {
-                return reinterpret_cast<Block*>(
-                    tagged_address & kAddressMask);
+                return reinterpret_cast<Block*>(tagged_address & kAddressMask);
             }
 
             [[nodiscard]] bool unique() const noexcept {
@@ -81,8 +80,7 @@ namespace doost {
             void set_unique(bool unique_block) noexcept {
                 if (unique_block) {
                     tagged_address |= kUniqueMask;
-                }
-                else {
+                } else {
                     tagged_address &= kAddressMask;
                 }
             }
@@ -162,7 +160,7 @@ namespace doost {
     }
 
     [[nodiscard]] inline std::string String::value() const {
-        return std::string(c_str());
+        return {c_str()};
     }
 
     [[nodiscard]] inline std::string_view String::view() const noexcept {

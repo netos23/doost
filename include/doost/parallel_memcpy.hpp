@@ -4,29 +4,33 @@
 #include <cstddef>
 
 namespace doost {
+    inline constexpr std::size_t parallel_memcpy_min_parallel_bytes =
+        1024ULL * 1024ULL;
+
     class ParallelMemcpyPool {
     public:
-        explicit ParallelMemcpyPool(std::size_t thread_count = 0);
+        ParallelMemcpyPool();
+        explicit ParallelMemcpyPool(std::size_t thread_count);
         ~ParallelMemcpyPool();
 
         ParallelMemcpyPool(const ParallelMemcpyPool&) = delete;
         ParallelMemcpyPool& operator=(const ParallelMemcpyPool&) = delete;
 
-        void set_thread_count(std::size_t thread_count);
         [[nodiscard]] std::size_t thread_count() const;
 
         void* copy(void* dst, const void* src, std::size_t size);
 
     private:
         void stop_workers() noexcept;
-        void worker_loop();
-        void process_chunks();
+        void worker_loop(std::size_t worker_index);
+        static void copy_bytes(std::byte* dst, const std::byte* src,
+                               std::size_t size);
+        void start_workers(std::size_t thread_count);
 
         struct Impl;
         Impl* impl_;
     };
 
-    void set_parallel_memcpy_thread_count(std::size_t thread_count);
     [[nodiscard]] std::size_t parallel_memcpy_thread_count();
     void* parallel_memcpy(void* dst, const void* src, std::size_t size);
 } // namespace doost

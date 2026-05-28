@@ -1,27 +1,20 @@
 #include "doost/parallel_memcpy.hpp"
 
-#include <algorithm>
-#include <condition_variable>
+#include <atomic>
 #include <cstddef>
 #include <cstring>
-#include <mutex>
+#include <memory>
 #include <thread>
 #include <vector>
 
 namespace doost {
     namespace {
-        constexpr std::size_t kMinParallelCopyBytes = 1024 * 1024;
-
-        void copy_chunk(std::byte* dst, const std::byte* src, std::size_t size,
-                        std::size_t chunk_count, std::size_t chunk_index) {
-            const std::size_t base_size = size / chunk_count;
-            const std::size_t extra = size % chunk_count;
-            const std::size_t offset =
-                chunk_index * base_size + std::min(chunk_index, extra);
-            const std::size_t length =
-                base_size + (chunk_index < extra ? 1U : 0U);
-
-            std::memcpy(dst + offset, src + offset, length);
+        std::size_t default_thread_count() noexcept {
+            const unsigned hardware_threads = std::thread::hardware_concurrency();
+            if (hardware_threads <= 1) {
+                return 0;
+            }
+            return static_cast<std::size_t>(hardware_threads - 1);
         }
 
         ParallelMemcpyPool& default_pool() {
@@ -31,25 +24,29 @@ namespace doost {
     } // namespace
 
     struct ParallelMemcpyPool::Impl {
-        mutable std::mutex mutex;
-        std::condition_variable has_work;
-        std::condition_variable work_done;
-        std::vector<std::thread> workers;
+        struct WorkerState {
+            std::byte* dst = nullptr;
+            const std::byte* src = nullptr;
+            std::size_t size = 0;
+            std::atomic<std::size_t> generation{0};
+        };
 
-        std::byte* dst = nullptr;
-        const std::byte* src = nullptr;
-        std::size_t size = 0;
-        std::size_t chunk_count = 0;
-        std::size_t next_chunk = 0;
-        std::size_t finished_chunks = 0;
-        std::size_t generation = 0;
-        bool stopping = false;
+        std::vector<std::thread> workers;
+        std::vector<std::unique_ptr<WorkerState>> worker_states;
+
+        std::size_t scheduled_workers = 0;
+        std::atomic<std::size_t> worker_count{0};
+        std::atomic<std::size_t> finished_workers{0};
+        std::atomic<bool> stopping{false};
     };
+
+    ParallelMemcpyPool::ParallelMemcpyPool()
+        : ParallelMemcpyPool(default_thread_count()) {}
 
     ParallelMemcpyPool::ParallelMemcpyPool(std::size_t thread_count)
         : impl_(new Impl) {
         try {
-            set_thread_count(thread_count);
+            start_workers(thread_count);
         }
         catch (...) {
             stop_workers();
@@ -63,26 +60,24 @@ namespace doost {
         delete impl_;
     }
 
-    void ParallelMemcpyPool::set_thread_count(std::size_t thread_count) {
-        stop_workers();
+    void ParallelMemcpyPool::start_workers(std::size_t thread_count) {
+        impl_->worker_states.reserve(thread_count);
+        for (std::size_t index = 0; index != thread_count; ++index) {
+            impl_->worker_states.push_back(
+                std::make_unique<Impl::WorkerState>());
+        }
 
-        try {
-            impl_->workers.reserve(thread_count);
-            for (std::size_t index = 0; index != thread_count; ++index) {
-                impl_->workers.emplace_back([this] {
-                    worker_loop();
-                });
-            }
+        impl_->workers.reserve(thread_count);
+        for (std::size_t index = 0; index != thread_count; ++index) {
+            impl_->workers.emplace_back([this, index] {
+                worker_loop(index);
+            });
         }
-        catch (...) {
-            stop_workers();
-            throw;
-        }
+        impl_->worker_count.store(thread_count, std::memory_order_release);
     }
 
     std::size_t ParallelMemcpyPool::thread_count() const {
-        std::lock_guard lock(impl_->mutex);
-        return impl_->workers.size();
+        return impl_->worker_count.load(std::memory_order_acquire);
     }
 
     void* ParallelMemcpyPool::copy(void* dst, const void* src, std::size_t size) {
@@ -91,39 +86,46 @@ namespace doost {
         }
 
         const std::size_t worker_count = thread_count();
-        if (worker_count == 0 || size <= kMinParallelCopyBytes) {
+        if (worker_count == 0 || size <= parallel_memcpy_min_parallel_bytes) {
             return std::memcpy(dst, src, size);
         }
 
-        const std::size_t chunk_count = std::min(size, worker_count + 1);
-        {
-            std::lock_guard lock(impl_->mutex);
-            impl_->dst = static_cast<std::byte*>(dst);
-            impl_->src = static_cast<const std::byte*>(src);
-            impl_->size = size;
-            impl_->chunk_count = chunk_count;
-            impl_->next_chunk = 0;
-            impl_->finished_chunks = 0;
-            ++impl_->generation;
+        const std::size_t scheduled_workers = worker_count;
+        const std::size_t part_count = scheduled_workers + 1;
+        const std::size_t worker_size = size / part_count;
+        auto* destination = static_cast<std::byte*>(dst);
+        auto* source = static_cast<const std::byte*>(src);
+        std::size_t offset = 0;
+
+        impl_->scheduled_workers = scheduled_workers;
+        impl_->finished_workers.store(0, std::memory_order_relaxed);
+
+        for (std::size_t index = 0; index != scheduled_workers; ++index) {
+            Impl::WorkerState& state = *impl_->worker_states[index];
+            state.dst = destination + offset;
+            state.src = source + offset;
+            state.size = worker_size;
+            offset += worker_size;
+            state.generation.fetch_add(1, std::memory_order_acq_rel);
+            state.generation.notify_one();
         }
+        copy_bytes(destination + offset, source + offset, size - offset);
 
-        impl_->has_work.notify_all();
-        process_chunks();
-
-        std::unique_lock lock(impl_->mutex);
-        impl_->work_done.wait(lock, [this] {
-            return impl_->finished_chunks == impl_->chunk_count;
-        });
+        std::size_t finished =
+            impl_->finished_workers.load(std::memory_order_acquire);
+        while (finished != scheduled_workers) {
+            impl_->finished_workers.wait(finished, std::memory_order_acquire);
+            finished = impl_->finished_workers.load(std::memory_order_acquire);
+        }
         return dst;
     }
 
     void ParallelMemcpyPool::stop_workers() noexcept {
-        {
-            std::lock_guard lock(impl_->mutex);
-            impl_->stopping = true;
-            ++impl_->generation;
+        impl_->stopping.store(true, std::memory_order_release);
+        for (const auto& state : impl_->worker_states) {
+            state->generation.fetch_add(1, std::memory_order_acq_rel);
+            state->generation.notify_one();
         }
-        impl_->has_work.notify_all();
 
         for (std::thread& worker : impl_->workers) {
             if (worker.joinable()) {
@@ -131,72 +133,55 @@ namespace doost {
             }
         }
 
-        std::lock_guard lock(impl_->mutex);
         impl_->workers.clear();
-        impl_->stopping = false;
+        impl_->worker_states.clear();
+        impl_->worker_count.store(0, std::memory_order_release);
+        impl_->stopping.store(false, std::memory_order_release);
     }
 
-    void ParallelMemcpyPool::worker_loop() {
+    void ParallelMemcpyPool::worker_loop(std::size_t worker_index) {
+        Impl::WorkerState& state = *impl_->worker_states[worker_index];
         std::size_t observed_generation = 0;
-        {
-            std::lock_guard lock(impl_->mutex);
-            observed_generation = impl_->generation;
-        }
 
         for (;;) {
-            {
-                std::unique_lock lock(impl_->mutex);
-                impl_->has_work.wait(lock, [this, observed_generation] {
-                    return impl_->stopping ||
-                        impl_->generation != observed_generation;
-                });
-
-                if (impl_->stopping) {
-                    return;
-                }
-
-                observed_generation = impl_->generation;
+            if (impl_->stopping.load(std::memory_order_acquire)) {
+                return;
             }
 
-            process_chunks();
-        }
-    }
-
-    void ParallelMemcpyPool::process_chunks() {
-        for (;;) {
-            std::byte* dst = nullptr;
-            const std::byte* src = nullptr;
-            std::size_t size = 0;
-            std::size_t chunk_count = 0;
-            std::size_t chunk_index = 0;
-
-            {
-                std::lock_guard lock(impl_->mutex);
-                if (impl_->next_chunk == impl_->chunk_count) {
+            std::size_t generation =
+                state.generation.load(std::memory_order_acquire);
+            while (generation == observed_generation) {
+                if (impl_->stopping.load(std::memory_order_acquire)) {
                     return;
                 }
-
-                chunk_index = impl_->next_chunk++;
-                dst = impl_->dst;
-                src = impl_->src;
-                size = impl_->size;
-                chunk_count = impl_->chunk_count;
+                state.generation.wait(observed_generation,
+                                      std::memory_order_acquire);
+                generation = state.generation.load(std::memory_order_acquire);
             }
 
-            copy_chunk(dst, src, size, chunk_count, chunk_index);
+            observed_generation = generation;
+            if (impl_->stopping.load(std::memory_order_acquire)) {
+                return;
+            }
 
-            {
-                std::lock_guard lock(impl_->mutex);
-                ++impl_->finished_chunks;
-                if (impl_->finished_chunks == impl_->chunk_count) {
-                    impl_->work_done.notify_one();
-                }
+            copy_bytes(state.dst, state.src, state.size);
+
+            const std::size_t finished =
+                impl_->finished_workers.fetch_add(
+                    1, std::memory_order_acq_rel) + 1;
+            if (finished == impl_->scheduled_workers) {
+                impl_->finished_workers.notify_one();
             }
         }
     }
 
-    void set_parallel_memcpy_thread_count(std::size_t thread_count) {
-        default_pool().set_thread_count(thread_count);
+    void ParallelMemcpyPool::copy_bytes(std::byte* dst, const std::byte* src,
+                                        std::size_t size) {
+        if (size == 0) {
+            return;
+        }
+
+        std::memcpy(dst, src, size);
     }
 
     std::size_t parallel_memcpy_thread_count() {

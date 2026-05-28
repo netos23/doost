@@ -96,6 +96,13 @@ add_executable(parallel_memcpy_benchmark
 )
 target_link_libraries(parallel_memcpy_benchmark PRIVATE doost_parallel_memcpy)
 
+add_executable(parallel_memcpy_min_size_benchmark
+        benchmark/parallel_memcpy_min_size_benchmark.cpp
+)
+target_link_libraries(parallel_memcpy_min_size_benchmark PRIVATE
+        doost_parallel_memcpy
+)
+
 if(BUILD_TESTING)
         add_executable(doost_tests test/doost_tests.cpp)
         target_link_libraries(doost_tests PRIVATE doost_pool Threads::Threads)

@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
 
         for (std::size_t thread_count = 0; thread_count <= max_threads;
              ++thread_count) {
-            doost::set_parallel_memcpy_thread_count(thread_count);
+            doost::ParallelMemcpyPool pool(thread_count);
 
             double best_seconds = 0.0;
             for (unsigned repeat = 0; repeat != repeats; ++repeat) {
@@ -85,8 +85,8 @@ int main(int argc, char** argv) {
                           static_cast<std::uint8_t>(0xa5));
 
                 const auto started = std::chrono::steady_clock::now();
-                void* result = doost::parallel_memcpy(
-                    destination.data(), source.data(), source.size());
+                void* result = pool.copy(destination.data(), source.data(),
+                                         source.size());
                 const auto finished = std::chrono::steady_clock::now();
 
                 if (result != destination.data() ||

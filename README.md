@@ -167,7 +167,7 @@ std::optional<std::uint8_t> doost::safe_read_uint8(const std::uint8_t* p) noexce
 void* doost::parallel_memcpy(void* dst, const void* src, std::size_t size);
 ```
 
-Число worker-потоков задается через `doost::set_parallel_memcpy_thread_count`. При копировании диапазон делится на части, а поток приложения забирает работу из той же очереди, что и worker-потоки. При `0` worker-потоков используется обычный `std::memcpy`.
+Число worker-потоков фиксируется при создании `doost::ParallelMemcpyPool`. При `0` worker-потоков используется обычный `std::memcpy`.
 
 # Результаты
 
