@@ -93,18 +93,12 @@ namespace doost {
             return std::memcpy(dst, src, size);
         }
 
-        const std::size_t part_count = worker_count + 1;
-        const std::size_t worker_size = size / part_count;
-        if (worker_size == 0) {
-            return std::memcpy(dst, src, size);
-        }
-
-        const std::size_t scheduled_workers = part_count - 1;
+        const std::size_t worker_size = size / worker_count;
         auto* destination = static_cast<std::byte*>(dst);
         auto* source = static_cast<const std::byte*>(src);
         std::size_t offset = 0;
 
-        for (std::size_t index = 0; index != scheduled_workers; ++index) {
+        for (std::size_t index = 0; index != worker_count - 1; ++index) {
             Impl::WorkerState& state = impl_->worker_states[index];
             state.dst = destination + offset;
             state.src = source + offset;
@@ -112,16 +106,17 @@ namespace doost {
             offset += worker_size;
         }
 
+        Impl::WorkerState& last_state = impl_->worker_states[worker_count - 1];
+        last_state.dst = destination + offset;
+        last_state.src = source + offset;
+        last_state.size = size - offset;
+
         const std::size_t generation =
             impl_->start_generation.load(std::memory_order_relaxed) + 1;
         impl_->start_generation.store(generation, std::memory_order_release);
         impl_->start_generation.notify_all();
 
-        if (size - offset > 0) {
-            std::memcpy(destination + offset, source + offset, size - offset);
-        }
-
-        for (std::size_t index = 0; index != scheduled_workers; ++index) {
+        for (std::size_t index = 0; index != worker_count; ++index) {
             const Impl::WorkerState& state = impl_->worker_states[index];
             std::size_t completed =
                 state.completed_generation.load(std::memory_order_acquire);

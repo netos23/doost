@@ -134,9 +134,9 @@ namespace {
         return baseline_seconds / candidate_seconds;
     }
 
-    std::size_t bytes_per_thread(std::size_t size,
+    std::size_t bytes_per_worker(std::size_t size,
                                  std::size_t worker_count) noexcept {
-        return size / (worker_count + 1);
+        return worker_count == 0 ? 0 : size / worker_count;
     }
 } // namespace
 
@@ -155,7 +155,7 @@ int main(int argc, char** argv) {
         std::cout << "Threads: " << options.thread_count << '\n';
         std::cout << "Repeats: " << options.repeats << '\n';
         std::cout << "Size bytes, std memcpy best us, pool copy best us, "
-            << "speedup, pool bytes per thread\n";
+            << "speedup, pool bytes per worker\n";
 
         for (std::size_t size = options.min_bytes; size <= options.max_bytes;) {
             const double std_seconds =
@@ -172,13 +172,13 @@ int main(int argc, char** argv) {
                              });
 
             const double ratio = speedup(std_seconds, parallel_seconds);
-            const std::size_t bytes_for_thread =
-                bytes_per_thread(size, options.thread_count);
+            const std::size_t bytes_for_worker =
+                bytes_per_worker(size, options.thread_count);
             std::cout << size << ", " << microseconds(std_seconds) << ", "
                 << microseconds(parallel_seconds) << ", " << ratio << ", "
-                << bytes_for_thread << '\n';
+                << bytes_for_worker << '\n';
 
-            if (bytes_for_thread != 0 && first_winning_size == 0 &&
+            if (first_winning_size == 0 &&
                 parallel_seconds < std_seconds) {
                 first_winning_size = size;
             }
