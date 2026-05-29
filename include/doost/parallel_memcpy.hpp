@@ -23,8 +23,6 @@ namespace doost {
     private:
         void stop_workers() noexcept;
         void worker_loop(std::size_t worker_index);
-        static void copy_bytes(std::byte* dst, const std::byte* src,
-                               std::size_t size);
         void start_workers(std::size_t thread_count);
 
         struct Impl;

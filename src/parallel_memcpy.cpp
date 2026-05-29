@@ -113,7 +113,9 @@ namespace doost {
         impl_->start_generation.store(generation, std::memory_order_release);
         impl_->start_generation.notify_all();
 
-        copy_bytes(destination + offset, source + offset, size - offset);
+        if (size - offset > 0) {
+            std::memcpy(destination + offset, source + offset, size - offset);
+        }
 
         for (std::size_t index = 0; index != scheduled_workers; ++index) {
             const Impl::WorkerState& state = impl_->worker_states[index];
@@ -168,21 +170,13 @@ namespace doost {
                 return;
             }
 
-            copy_bytes(state.dst, state.src, state.size);
+            std::memcpy(state.dst, state.src, state.size);
             state.completed_generation.store(generation,
                                              std::memory_order_release);
             state.completed_generation.notify_one();
         }
     }
 
-    void ParallelMemcpyPool::copy_bytes(std::byte* dst, const std::byte* src,
-                                        std::size_t size) {
-        if (size == 0) {
-            return;
-        }
-
-        std::memcpy(dst, src, size);
-    }
 
     std::size_t parallel_memcpy_thread_count() {
         return default_pool().thread_count();

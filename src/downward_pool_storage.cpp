@@ -227,19 +227,19 @@ namespace doost::detail {
             const std::size_t mask = multiple - 1;
             return (value + mask) & ~mask;
         }
+
     } // namespace
 
     DownwardPoolStorage make_downward_pool_storage(std::size_t usable_bytes,
+                                                   std::size_t max_alloc_size,
                                                    const char* overflow_name) {
         DownwardPoolStorage storage;
-        const std::size_t guard_page_bytes = system_page_size();
-
-        if (usable_bytes == 0) {
-            usable_bytes = 1;
-        }
+        const std::size_t page_size = system_page_size();
 
         const std::size_t rounded_usable_bytes =
-            round_up(usable_bytes, guard_page_bytes);
+            round_up(usable_bytes, page_size);
+        const std::size_t guard_page_bytes =
+            round_up(max_alloc_size, page_size);
 
         if (rounded_usable_bytes >
             std::numeric_limits<std::size_t>::max() - guard_page_bytes) {
@@ -266,7 +266,7 @@ namespace doost::detail {
         storage.overflow_name =
             overflow_name == nullptr ? "unnamed-pool" : overflow_name;
         storage.registry_slot = register_pool_guard(
-            storage.mapping_begin, storage.mapping_begin + storage.mapping_bytes,
+            storage.mapping_begin, storage.mapping_begin + guard_page_bytes,
             storage.overflow_name);
 #else
         static_cast<void>(overflow_name);

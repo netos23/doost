@@ -15,7 +15,10 @@ namespace doost::detail {
     };
 
     [[nodiscard]] DownwardPoolStorage make_downward_pool_storage(
-        std::size_t usable_bytes, const char* overflow_name);
+        std::size_t usable_bytes,
+        std::size_t max_alloc_size,
+        const char* overflow_name
+    );
     void release_downward_pool_storage(DownwardPoolStorage& storage) noexcept;
 
     [[nodiscard]] inline std::byte* downward_pool_mapping_end(

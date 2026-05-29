@@ -2,8 +2,10 @@
 
 namespace doost {
     DownwardPool::DownwardPool(std::size_t usable_bytes,
+                               std::size_t max_alloc_size,
                                const char* overflow_name)
         : storage_(detail::make_downward_pool_storage(usable_bytes,
+                                                      max_alloc_size,
                                                       overflow_name)),
           cursor_(detail::downward_pool_mapping_end(storage_)) {}
 

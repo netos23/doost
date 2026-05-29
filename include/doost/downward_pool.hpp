@@ -10,6 +10,7 @@ namespace doost {
     class DownwardPool {
     public:
         explicit DownwardPool(std::size_t usable_bytes,
+                              std::size_t max_alloc_size,
                               const char* overflow_name = "downward-pool");
         ~DownwardPool();
 

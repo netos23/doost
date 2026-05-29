@@ -75,6 +75,7 @@ namespace {
         std::size_t pool_used = 0;
         {
             doost::DownwardPool pool(PoolList::required_storage(n),
+                                     sizeof(PoolList::Node),
                                      "pool-allocator-benchmark");
             pool_usable = pool.usable_bytes();
 

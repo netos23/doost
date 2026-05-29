@@ -10,9 +10,9 @@
 namespace doost {
     class NonblockingDownwardPool {
     public:
-        explicit NonblockingDownwardPool(std::size_t usable_bytes,
-                                         const char* overflow_name =
-                                             "global-nonblocking-pool");
+        explicit NonblockingDownwardPool(
+            std::size_t usable_bytes, std::size_t max_alloc_size,
+            const char* overflow_name = "global-nonblocking-pool");
         ~NonblockingDownwardPool();
 
         NonblockingDownwardPool(const NonblockingDownwardPool&) = delete;
@@ -52,17 +52,24 @@ namespace doost {
     }
 
     [[nodiscard]] inline void* NonblockingDownwardPool::allocate(
-        std::size_t bytes, std::size_t alignment) {
-        std::uintptr_t current = cursor_.load(std::memory_order_relaxed);
-        for (;;) {
-            const std::uintptr_t aligned =
-                detail::align_downward_pool_cursor(current, bytes, alignment);
-            if (cursor_.compare_exchange_weak(current, aligned,
-                                              std::memory_order_acq_rel,
-                                              std::memory_order_relaxed)) {
-                return reinterpret_cast<void*>(aligned);
-            }
-        }
+        std::size_t bytes,
+        std::size_t alignment
+    ) {
+        constexpr std::size_t cursor_alignment = alignof(std::max_align_t);
+        const std::size_t padding =
+            alignment > cursor_alignment ? alignment - 1U : 0U;
+
+        const std::size_t reservation_mask = cursor_alignment - 1U;
+
+        const std::size_t reservation =
+            (bytes + padding + reservation_mask) & ~reservation_mask;
+
+        const std::uintptr_t current =
+            cursor_.fetch_sub(reservation, std::memory_order_relaxed);
+
+        const std::uintptr_t aligned =
+            detail::align_downward_pool_cursor(current, bytes, alignment);
+        return reinterpret_cast<void*>(aligned);
     }
 
     inline void NonblockingDownwardPool::reset() noexcept {

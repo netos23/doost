@@ -12,6 +12,7 @@
 namespace doost {
     template <class T, class Allocator = std::allocator<T>>
     class List {
+    public:
         struct Node {
             template <class... Args>
             explicit Node(Node* next_node, Args&&... args)
@@ -21,6 +22,7 @@ namespace doost {
             T value;
         };
 
+    private:
         using NodeAllocator =
         typename std::allocator_traits<Allocator>::template rebind_alloc<Node>;
         using NodeTraits = std::allocator_traits<NodeAllocator>;

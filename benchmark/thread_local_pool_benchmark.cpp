@@ -21,7 +21,8 @@ int main(int argc, const char* argv[]) {
             std::vector<std::size_t> used(options.thread_count);
 
             doost::benchmark::run_threads(options.thread_count, [&](unsigned index) {
-                Pool pool(storage_per_thread, "thread-local-pool");
+                Pool pool(storage_per_thread, sizeof(List::Node),
+                          "thread-local-pool");
                 List list{Allocator(pool)};
                 doost::benchmark::fill_list(list, options.node_count);
                 usable[index] = pool.usable_bytes();
