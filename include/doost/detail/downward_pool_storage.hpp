@@ -8,16 +8,11 @@ namespace doost::detail {
     struct DownwardPoolStorage {
         std::byte* mapping_begin = nullptr;
         std::size_t mapping_bytes = 0;
-#if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
-        int registry_slot = -1;
-        const char* overflow_name = nullptr;
-#endif
     };
 
     [[nodiscard]] DownwardPoolStorage make_downward_pool_storage(
         std::size_t usable_bytes,
-        std::size_t max_alloc_size,
-        const char* overflow_name
+        std::size_t max_alloc_size
     );
     void release_downward_pool_storage(DownwardPoolStorage& storage) noexcept;
 

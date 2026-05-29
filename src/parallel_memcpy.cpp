@@ -89,13 +89,17 @@ namespace doost {
         }
 
         const std::size_t worker_count = thread_count();
-        if (worker_count == 0 || size <= parallel_memcpy_min_parallel_bytes) {
+        if (worker_count == 0) {
             return std::memcpy(dst, src, size);
         }
 
-        const std::size_t scheduled_workers = worker_count;
-        const std::size_t part_count = scheduled_workers + 1;
+        const std::size_t part_count = worker_count + 1;
         const std::size_t worker_size = size / part_count;
+        if (worker_size == 0) {
+            return std::memcpy(dst, src, size);
+        }
+
+        const std::size_t scheduled_workers = part_count - 1;
         auto* destination = static_cast<std::byte*>(dst);
         auto* source = static_cast<const std::byte*>(src);
         std::size_t offset = 0;

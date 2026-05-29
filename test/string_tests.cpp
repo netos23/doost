@@ -85,6 +85,26 @@ namespace {
         CHECK(from_string.value() == source);
     }
 
+    void test_null_and_empty_string_are_distinct() {
+        doost::String default_null;
+        doost::String explicit_null(nullptr);
+        doost::String allocated_empty("");
+
+        CHECK(!default_null.has_value());
+        CHECK(!explicit_null.has_value());
+        CHECK(allocated_empty.has_value());
+        CHECK(allocated_empty.empty());
+        CHECK(allocated_empty.unique());
+
+        CHECK(default_null == explicit_null);
+        CHECK(!(default_null == allocated_empty));
+        CHECK(!(explicit_null == allocated_empty));
+        CHECK(!(default_null == std::string_view()));
+        CHECK(allocated_empty == std::string_view());
+        CHECK(default_null < allocated_empty);
+        CHECK(!(allocated_empty < default_null));
+    }
+
     void test_copy_initialization_and_assignment() {
         doost::String first("first");
         doost::String second(first);
@@ -237,6 +257,8 @@ namespace {
 int main() {
     run_test("default and string initialization",
              test_default_and_string_initialization);
+    run_test("null and empty string are distinct",
+             test_null_and_empty_string_are_distinct);
     run_test("copy initialization and assignment",
              test_copy_initialization_and_assignment);
     run_test("move and swap preserve reference bits",

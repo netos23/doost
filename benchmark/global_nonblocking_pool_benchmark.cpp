@@ -14,8 +14,7 @@ int main(int argc, const char* argv[]) {
         argc, argv, "global-nonblocking-pool", List::node_size,
         [](const doost::benchmark::Options& options,
            std::size_t node_storage_required) -> doost::benchmark::PoolStats {
-            Pool pool(node_storage_required, sizeof(List::Node),
-                      "global-nonblocking-pool");
+            Pool pool(node_storage_required, sizeof(List::Node));
 
             doost::benchmark::run_threads(options.thread_count, [&](unsigned) {
                 List list{Allocator(pool)};

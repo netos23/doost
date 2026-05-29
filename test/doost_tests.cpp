@@ -186,8 +186,7 @@ namespace {
             thread_count * allocations_per_thread;
 
         doost::NonblockingDownwardPool pool(allocation_count * allocation_size,
-                                            allocation_size,
-                                            "test-nonblocking-pool");
+                                            allocation_size);
 
         std::vector<std::uintptr_t> addresses(allocation_count);
         std::vector<std::thread> threads;
@@ -223,8 +222,7 @@ namespace {
     void test_nonblocking_pool_handles_alignment_padding() {
         constexpr std::size_t alignment = alignof(std::max_align_t);
         doost::NonblockingDownwardPool pool(2 * alignment,
-                                            alignment,
-                                            "test-nonblocking-padding");
+                                            alignment);
 
         auto* first =
             static_cast<unsigned char*>(pool.allocate(1, alignment));
@@ -240,8 +238,7 @@ namespace {
 
         constexpr std::size_t over_alignment = 2 * alignment;
         doost::NonblockingDownwardPool over_aligned_pool(
-            alignment + over_alignment, over_alignment,
-            "test-nonblocking-over-aligned");
+            alignment + over_alignment, over_alignment);
 
         auto* small =
             static_cast<unsigned char*>(over_aligned_pool.allocate(1, 1));
@@ -295,28 +292,26 @@ namespace {
         _exit(kPreviousSegvHandlerExitCode);
     }
 
-    void write_into_named_guard_page_in_child() {
+    void write_into_registered_guard_page_in_child() {
         doost::install_pool_overflow_signal_handler();
-        doost::DownwardPool pool(1, system_page_size() + 1,
-                                 "test-overflow-pool");
+        doost::DownwardPool pool(1, system_page_size() + 1);
         auto* memory = static_cast<volatile unsigned char*>(
             pool.allocate(system_page_size() + 1, alignof(unsigned char)));
         *memory = 0x7f;
         _exit(EXIT_SUCCESS);
     }
 
-    void write_into_large_named_guard_page_in_child() {
+    void write_into_large_registered_guard_page_in_child() {
         doost::install_pool_overflow_signal_handler();
         const std::size_t max_alloc_size = 2 * system_page_size() + 1;
-        doost::DownwardPool pool(1, max_alloc_size,
-                                 "test-large-overflow-pool");
+        doost::DownwardPool pool(1, max_alloc_size);
         auto* memory = static_cast<volatile unsigned char*>(
             pool.allocate(max_alloc_size, alignof(unsigned char)));
         *memory = 0x7f;
         _exit(EXIT_SUCCESS);
     }
 
-    void test_overflow_handler_reports_pool_name() {
+    void test_overflow_handler_reports_pool_index() {
         int pipe_fds[2] = {-1, -1};
         if (pipe(pipe_fds) != 0) {
             throw std::runtime_error("pipe failed");
@@ -333,7 +328,7 @@ namespace {
             close(pipe_fds[0]);
             dup2(pipe_fds[1], STDERR_FILENO);
             close(pipe_fds[1]);
-            write_into_named_guard_page_in_child();
+            write_into_registered_guard_page_in_child();
         }
 
         close(pipe_fds[1]);
@@ -356,10 +351,10 @@ namespace {
             const int signal = WTERMSIG(status);
             CHECK(signal == SIGSEGV || signal == SIGBUS);
         }
-        CHECK(output.find("test-overflow-pool") != std::string::npos);
+        CHECK(output.find("protected pool #") != std::string::npos);
     }
 
-    void test_large_guard_reports_pool_name() {
+    void test_large_guard_reports_pool_index() {
         int pipe_fds[2] = {-1, -1};
         if (pipe(pipe_fds) != 0) {
             throw std::runtime_error("pipe failed");
@@ -376,7 +371,7 @@ namespace {
             close(pipe_fds[0]);
             dup2(pipe_fds[1], STDERR_FILENO);
             close(pipe_fds[1]);
-            write_into_large_named_guard_page_in_child();
+            write_into_large_registered_guard_page_in_child();
         }
 
         close(pipe_fds[1]);
@@ -399,7 +394,7 @@ namespace {
             const int signal = WTERMSIG(status);
             CHECK(signal == SIGSEGV || signal == SIGBUS);
         }
-        CHECK(output.find("test-large-overflow-pool") != std::string::npos);
+        CHECK(output.find("protected pool #") != std::string::npos);
     }
 
     void write_to_unregistered_address_in_child() {
@@ -495,10 +490,10 @@ int main() {
              test_nonblocking_pool_handles_alignment_padding);
     run_test("overflow hits guard page", test_overflow_hits_guard_page);
 #if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
-    run_test("overflow handler reports pool name",
-             test_overflow_handler_reports_pool_name);
-    run_test("large guard reports pool name",
-             test_large_guard_reports_pool_name);
+    run_test("overflow handler reports pool index",
+             test_overflow_handler_reports_pool_index);
+    run_test("large guard reports pool index",
+             test_large_guard_reports_pool_index);
     run_test("overflow handler delegates unregistered faults",
              test_overflow_handler_delegates_unregistered_faults);
 #endif

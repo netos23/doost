@@ -11,8 +11,7 @@ namespace doost {
     class NonblockingDownwardPool {
     public:
         explicit NonblockingDownwardPool(
-            std::size_t usable_bytes, std::size_t max_alloc_size,
-            const char* overflow_name = "global-nonblocking-pool");
+            std::size_t usable_bytes, std::size_t max_alloc_size);
         ~NonblockingDownwardPool();
 
         NonblockingDownwardPool(const NonblockingDownwardPool&) = delete;

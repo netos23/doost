@@ -133,6 +133,11 @@ namespace {
         }
         return baseline_seconds / candidate_seconds;
     }
+
+    std::size_t bytes_per_thread(std::size_t size,
+                                 std::size_t worker_count) noexcept {
+        return size / (worker_count + 1);
+    }
 } // namespace
 
 int main(int argc, char** argv) {
@@ -149,10 +154,8 @@ int main(int argc, char** argv) {
 
         std::cout << "Threads: " << options.thread_count << '\n';
         std::cout << "Repeats: " << options.repeats << '\n';
-        std::cout << "Configured pool threshold: "
-            << doost::parallel_memcpy_min_parallel_bytes << " bytes\n";
         std::cout << "Size bytes, std memcpy best us, pool copy best us, "
-            << "speedup, pool eligible\n";
+            << "speedup, pool bytes per thread\n";
 
         for (std::size_t size = options.min_bytes; size <= options.max_bytes;) {
             const double std_seconds =
@@ -169,13 +172,13 @@ int main(int argc, char** argv) {
                              });
 
             const double ratio = speedup(std_seconds, parallel_seconds);
-            const bool pool_eligible =
-                size > doost::parallel_memcpy_min_parallel_bytes;
+            const std::size_t bytes_for_thread =
+                bytes_per_thread(size, options.thread_count);
             std::cout << size << ", " << microseconds(std_seconds) << ", "
                 << microseconds(parallel_seconds) << ", " << ratio << ", "
-                << (pool_eligible ? "yes" : "no") << '\n';
+                << bytes_for_thread << '\n';
 
-            if (pool_eligible && first_winning_size == 0 &&
+            if (bytes_for_thread != 0 && first_winning_size == 0 &&
                 parallel_seconds < std_seconds) {
                 first_winning_size = size;
             }

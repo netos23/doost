@@ -4,9 +4,6 @@
 #include <cstddef>
 
 namespace doost {
-    inline constexpr std::size_t parallel_memcpy_min_parallel_bytes =
-        1024ULL * 1024ULL;
-
     class ParallelMemcpyPool {
     public:
         ParallelMemcpyPool();

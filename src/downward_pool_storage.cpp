@@ -25,7 +25,6 @@ namespace doost::detail {
         struct PoolRegistryEntry {
             std::atomic<std::uintptr_t> guard_begin{0};
             std::atomic<std::uintptr_t> guard_end{0};
-            std::atomic<const char*> name{nullptr};
         };
 
         std::array<PoolRegistryEntry, kMaxRegisteredPools> g_pool_registry;
@@ -57,14 +56,22 @@ namespace doost::detail {
             }
         }
 
-        int register_pool_guard(
-            std::byte* guard_begin,
-            std::byte* guard_end,
-            const char* name
-        ) noexcept {
+        void write_size(std::size_t value) noexcept {
+            char buffer[std::numeric_limits<std::size_t>::digits10 + 1];
+            char* current = buffer + sizeof(buffer);
+            do {
+                *--current = static_cast<char>('0' + value % 10);
+                value /= 10;
+            } while (value != 0);
+
+            write(STDERR_FILENO, current,
+                  static_cast<std::size_t>(buffer + sizeof(buffer) - current));
+        }
+
+        void register_pool_guard(std::byte* guard_begin,
+                                 std::byte* guard_end) noexcept {
             for (std::size_t index = 0; index != g_pool_registry.size(); ++index) {
                 if (g_pool_registry[index].guard_begin.load(std::memory_order_acquire) == 0) {
-                    g_pool_registry[index].name.store(name, std::memory_order_relaxed);
                     g_pool_registry[index].guard_end.store(
                         reinterpret_cast<std::uintptr_t>(guard_end),
                         std::memory_order_relaxed
@@ -73,28 +80,30 @@ namespace doost::detail {
                         reinterpret_cast<std::uintptr_t>(guard_begin),
                         std::memory_order_release
                     );
-                    return static_cast<int>(index);
+                    return;
                 }
             }
-
-            return -1;
         }
 
-        void unregister_pool_guard(int slot) noexcept {
-            if (slot < 0 ||
-                static_cast<std::size_t>(slot) >= g_pool_registry.size()) {
+        void unregister_pool_guard(std::byte* guard_begin) noexcept {
+            if (guard_begin == nullptr) {
                 return;
             }
 
-            auto& entry = g_pool_registry[static_cast<std::size_t>(slot)];
-            entry.guard_begin.store(0, std::memory_order_release);
-            entry.guard_end.store(0, std::memory_order_relaxed);
-            entry.name.store(nullptr, std::memory_order_relaxed);
+            const auto begin = reinterpret_cast<std::uintptr_t>(guard_begin);
+            for (auto& entry : g_pool_registry) {
+                if (entry.guard_begin.load(std::memory_order_acquire) == begin) {
+                    entry.guard_begin.store(0, std::memory_order_release);
+                    entry.guard_end.store(0, std::memory_order_relaxed);
+                    return;
+                }
+            }
         }
 
-        const char* find_pool_name(void* fault_address) noexcept {
+        int find_pool_index(void* fault_address) noexcept {
             const auto address = reinterpret_cast<std::uintptr_t>(fault_address);
-            for (const auto& entry : g_pool_registry) {
+            for (std::size_t index = 0; index != g_pool_registry.size(); ++index) {
+                const auto& entry = g_pool_registry[index];
                 const std::uintptr_t begin = entry.guard_begin.load(std::memory_order_acquire);
                 if (begin == 0) {
                     continue;
@@ -103,12 +112,11 @@ namespace doost::detail {
                 const std::uintptr_t end =
                     entry.guard_end.load(std::memory_order_relaxed);
                 if (begin <= address && address < end) {
-                    const char* name = entry.name.load(std::memory_order_relaxed);
-                    return name == nullptr ? "unnamed-pool" : name;
+                    return static_cast<int>(index);
                 }
             }
 
-            return nullptr;
+            return -1;
         }
 
         const struct sigaction* previous_signal_action(
@@ -157,17 +165,16 @@ namespace doost::detail {
 
         void pool_signal_handler(int signal_number, siginfo_t* info,
                                  void* context) noexcept {
-            const char* pool_name =
-                info == nullptr ? nullptr : find_pool_name(info->si_addr);
-            if (pool_name == nullptr) {
+            const int pool_index =
+                info == nullptr ? -1 : find_pool_index(info->si_addr);
+            if (pool_index < 0) {
                 call_previous_signal_handler(signal_number, info, context);
             }
 
             write_all("doost: ");
             write_all(signal_name(signal_number));
-            write_all(" while accessing protected pool \"");
-            write_all(pool_name);
-            write_all("\"");
+            write_all(" while accessing protected pool #");
+            write_size(static_cast<std::size_t>(pool_index));
             write_all("\n");
 
             raise_with_default_action(signal_number);
@@ -231,8 +238,7 @@ namespace doost::detail {
     } // namespace
 
     DownwardPoolStorage make_downward_pool_storage(std::size_t usable_bytes,
-                                                   std::size_t max_alloc_size,
-                                                   const char* overflow_name) {
+                                                   std::size_t max_alloc_size) {
         DownwardPoolStorage storage;
         const std::size_t page_size = system_page_size();
 
@@ -263,13 +269,8 @@ namespace doost::detail {
         }
 
 #if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
-        storage.overflow_name =
-            overflow_name == nullptr ? "unnamed-pool" : overflow_name;
-        storage.registry_slot = register_pool_guard(
-            storage.mapping_begin, storage.mapping_begin + guard_page_bytes,
-            storage.overflow_name);
-#else
-        static_cast<void>(overflow_name);
+        register_pool_guard(storage.mapping_begin,
+                            storage.mapping_begin + guard_page_bytes);
 #endif
 
         return storage;
@@ -291,9 +292,7 @@ namespace doost::detail {
 
     void release_downward_pool_storage(DownwardPoolStorage& storage) noexcept {
 #if defined(DOOST_ENABLE_SIGSEGV_HANDLER)
-        unregister_pool_guard(storage.registry_slot);
-        storage.registry_slot = -1;
-        storage.overflow_name = nullptr;
+        unregister_pool_guard(storage.mapping_begin);
 #endif
 
         if (storage.mapping_begin != nullptr) {

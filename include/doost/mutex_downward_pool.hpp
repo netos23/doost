@@ -10,9 +10,7 @@ namespace doost {
     class MutexDownwardPool {
     public:
         explicit MutexDownwardPool(std::size_t usable_bytes,
-                                   std::size_t max_alloc_size,
-                                   const char* overflow_name =
-                                       "global-mutex-pool");
+                                   std::size_t max_alloc_size);
 
         MutexDownwardPool(const MutexDownwardPool&) = delete;
         MutexDownwardPool& operator=(const MutexDownwardPool&) = delete;
@@ -32,9 +30,8 @@ namespace doost {
 
     inline MutexDownwardPool::MutexDownwardPool(
         std::size_t usable_bytes,
-        std::size_t max_alloc_size,
-        const char* overflow_name)
-        : pool_(usable_bytes, max_alloc_size, overflow_name) {}
+        std::size_t max_alloc_size)
+        : pool_(usable_bytes, max_alloc_size) {}
 
     [[nodiscard]] inline void* MutexDownwardPool::allocate(
         std::size_t bytes, std::size_t alignment) {

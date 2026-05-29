@@ -174,11 +174,21 @@ namespace doost {
 
     [[nodiscard]] inline bool operator==(const String& lhs,
                                          const String& rhs) noexcept {
+        const String::Block* lhs_block = lhs.block_.pointer();
+        const String::Block* rhs_block = rhs.block_.pointer();
+        if (lhs_block == nullptr || rhs_block == nullptr) {
+            return lhs_block == rhs_block;
+        }
+
         return std::strcmp(lhs.c_str(), rhs.c_str()) == 0;
     }
 
     [[nodiscard]] inline bool operator==(const String& lhs,
                                          std::string_view rhs) noexcept {
+        if (!lhs.has_value()) {
+            return false;
+        }
+
         const char* value = lhs.c_str();
         const std::size_t length = std::strlen(value);
         return length == rhs.size() &&
@@ -192,6 +202,12 @@ namespace doost {
 
     [[nodiscard]] inline bool operator<(const String& lhs,
                                         const String& rhs) noexcept {
+        const String::Block* lhs_block = lhs.block_.pointer();
+        const String::Block* rhs_block = rhs.block_.pointer();
+        if (lhs_block == nullptr || rhs_block == nullptr) {
+            return lhs_block == nullptr && rhs_block != nullptr;
+        }
+
         return std::strcmp(lhs.c_str(), rhs.c_str()) < 0;
     }
 } // namespace doost

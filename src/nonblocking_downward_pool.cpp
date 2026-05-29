@@ -2,11 +2,9 @@
 
 namespace doost {
     NonblockingDownwardPool::NonblockingDownwardPool(
-        std::size_t usable_bytes, std::size_t max_alloc_size,
-        const char* overflow_name)
+        std::size_t usable_bytes, std::size_t max_alloc_size)
         : storage_(detail::make_downward_pool_storage(usable_bytes,
-                                                      max_alloc_size,
-                                                      overflow_name)),
+                                                      max_alloc_size)),
           cursor_(reinterpret_cast<std::uintptr_t>(
               detail::downward_pool_mapping_end(storage_))) {}
 
